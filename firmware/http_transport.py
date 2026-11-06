@@ -6,6 +6,9 @@ import socket
 
 WOULD_BLOCK = (errno.EAGAIN, getattr(errno, 'EWOULDBLOCK', errno.EAGAIN),
                getattr(errno, 'EINPROGRESS', errno.EAGAIN))
+# Trinh duyet huy ket noi truoc khi accept: chuyen binh thuong, listener van tot.
+ACCEPT_RETRY = WOULD_BLOCK + (getattr(errno, 'ECONNABORTED', errno.EAGAIN),)
+ACCEPT_IDLE_S = 0.025  # Moi lan accept khong co gi la mot exception: khong hoi qua day.
 
 
 def collect_garbage():
@@ -39,7 +42,8 @@ class SocketStream:
     def write(self, data):
         if self.closed:
             raise OSError(errno.EPIPE)
-        self.buffer += data
+        # Khong sao chep khi buffer rong: moi lan ghep can mot doan RAM lien moi.
+        self.buffer = self.buffer + data if self.buffer else data
 
     async def drain(self):
         data = memoryview(self.buffer)
@@ -122,8 +126,13 @@ class SocketServer:
                 sock, _ = self.listener.accept()
             except Exception as error:
                 if (isinstance(error, OSError) and error.args
-                        and error.args[0] in WOULD_BLOCK):
-                    await pause()
+                        and error.args[0] in ACCEPT_RETRY):
+                    await asyncio.sleep(ACCEPT_IDLE_S)
+                    continue
+                if isinstance(error, MemoryError):
+                    # Thieu RAM khong phai loi listener: don RAM va thu lai.
+                    collect_garbage()
+                    await asyncio.sleep(0.25)
                     continue
                 # A failed listener is rebuilt without resetting Wi-Fi or rearming.
                 if self.on_error:
@@ -151,7 +160,7 @@ class SocketServer:
                     sock.close()
                 except OSError:
                     pass
-                if self.on_error:
+                if self.on_error and not isinstance(error, MemoryError):
                     self.on_error(error)
                 collect_garbage()
                 await asyncio.sleep(0.25)

@@ -78,7 +78,7 @@ def main():
         for wheel in config.WHEELS:
             pins = config.MOTOR_CHANNELS[wheel['motor_channel']]
             motors.append(Motor(pins['in1'], pins['in2'], pins['pwm'], wheel['motor_inverted'], config.PWM_FREQUENCY))
-            encoders.append(Encoder(wheel['encoder_a'], None, 1))  # Chi dem xung, khong tinh RPM.
+            encoders.append(Encoder(wheel['encoder_a'], 1))  # Chi dem xung, khong tinh RPM.
         print('\nTHU DONG CO THAT: 100% PWM, 1 giay/lan, khong PID.')
         print('Ke 4 banh khoi mat dat. Chuan bi cong tac ngat nguon motor.')
         print('Khong bam RESET de dung: RESET co the chay lai main.py.')

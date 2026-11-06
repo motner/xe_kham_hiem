@@ -21,7 +21,7 @@ def main():
     encoders = []
     try:
         for gpio in config.ENCODER_PINS:
-            encoders.append(Encoder(gpio, None, 1, sample_ms=200, filter_tau=0))
+            encoders.append(Encoder(gpio, 1, sample_ms=200, filter_tau=0))
         print('Dong co da khoa. Xoay TAY tung banh, xem cot GPIO nao tang.')
         print('Moi gia tri la tong canh len OUT, KHONG phai RPM.')
         print('Thu tu cot: TRUOC TRAI, TRUOC PHAI, SAU TRAI, SAU PHAI')

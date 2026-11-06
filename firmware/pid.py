@@ -1,4 +1,3 @@
-"""PID toc do: dt theo giay, dau ra PWM chuan hoa (0..limit)."""
 import math
 
 
@@ -13,7 +12,8 @@ class PID:
         self.previous_measurement = None
 
     def update(self, target, measured, dt):
-        if not all(math.isfinite(x) for x in (target, measured, dt)) or dt <= 0:
+        # Khong dung generator: ham nay chay 80 lan/giay, cap phat se lam Wi-Fi thieu RAM.
+        if not (math.isfinite(target) and math.isfinite(measured) and math.isfinite(dt)) or dt <= 0:
             raise ValueError("PID input/dt invalid")
         error = target - measured
         # Dao ham tren measurement de tranh derivative kick khi doi setpoint.

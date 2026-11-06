@@ -48,6 +48,147 @@ và lịch sử bên dưới là tên trên thiết bị hoặc tên trước kh
 
 ## Trạng thái hiện tại và điều chưa xong
 
+- **7/11 — ĐÃ TÌM RA VÀ SỬA cú sập Wi-Fi khi lái (mục này thay các chẩn đoán "chưa rõ nguyên nhân" cùng ngày bên dưới).** Nguyên nhân: heap Python ban đầu 56 KB, code dùng khoảng 51 KB nên nới lên 112 KB. Khi cần một đoạn liền mà không còn, MicroPython nới thêm và lấy **toàn bộ khối lớn nhất còn lại** của RAM hệ thống (khoảng 18 KB), Wi-Fi/lwIP còn dưới 1 KB nên tê liệt; board vẫn báo đang nối. Bằng chứng: lấy `total - blk` trong 8 log, 4 lần không sập luôn 112.240 byte, 4 lần sập nhảy lên 128–133 KB đúng lúc RAM hệ thống tụt. **Sai lầm cần tránh lặp lại:** `gc.mem_free()` trên bản này cộng cả phần còn có thể nới (`max new split`), nên `mem_alloc + mem_free` gần như không đổi; vì vậy trước đây kết luận nhầm "heap Python không nới" và rút lại giả thuyết đúng. Muốn đo heap thật phải trừ khối lớn nhất của `esp32.idf_heap_info(esp32.HEAP_DATA)` hoặc đọc `micropython.mem_info()`. Mức "26 hay 85 KB" trước đây tưởng ngẫu nhiên thực ra là heap đã nới hay chưa: `gc.collect()` trả lại vùng heap trống hoàn toàn.
+  - **Hai nguồn, cần sửa cả hai:** (1) `Odometry.route` là list tuple lớn dần theo quãng đường: xe đứng yên, bơm điểm giả thì sập ở khoảng 130 điểm (gần ngưỡng mảng nhân đôi ở 128), đó là lý do trước đây chỉ sập khi xe chạy. Thay bằng lớp `Route` trên mảng `array('f')` cấp sẵn. (2) `json.dumps` của status cần đoạn liền khoảng 2,2 KB: thay bằng `JsonBuffer` ghi từng phần vào bộ đệm 3 KB cấp sẵn. Thêm: gửi không sao chép (`memoryview`, `SocketStream.write`). Chưa bắt được trực tiếp lệnh cấp phát bị từ chối; kết luận dựa trên các lần thử dưới đây.
+  - **Ma trận thử (motor quay thật, xe kê bánh, 5 phút):** chỉ `JsonBuffer`, script: sập sau khoảng 85 giây. Chỉ `Route`, script: đạt; cùng bản đó với Chrome: sập sau khoảng 45 giây. Cả hai, Chrome có đo trên board: đạt (heap ≤ 112 KB, RAM hệ thống thấp nhất 15 KB, ping xe mất 0,3%, 0 lần mất kết nối). Cả hai, Chrome không đo, khởi động thường: đạt (ping xe mất 0%, 0 lần mất kết nối, 0 `command_timeout`, 50 request bị trình duyệt hủy `ERR_ABORTED`). 96 test Python và test JS đạt trên bản cuối.
+  - **Vẫn chưa thử:** chạy bằng pin không USB, xe chạy trên sàn, hai điện thoại cùng lúc, chạy lâu hơn 5 phút, tải trang giữa lúc đang chạy. Biên RAM vẫn mỏng (hệ thống 15–26 KB); muốn rộng hơn cần đưa code vào firmware (frozen modules). Lỗi `can't cancel self` khi Ctrl-C vẫn còn: board kẹt tới khi reset phần cứng, chỉ xảy ra lúc dừng bằng Ctrl-C, không ảnh hưởng khi chạy thường.
+
+- **7/11 — chẩn đoán web mất phản hồi (`/api/status` quá 1200 ms), CHƯA sửa.** Ghi 30 phút qua USB với nhịp báo mỗi giây: vòng điều khiển luôn chạy (gap ≤ 92 ms sau khi khởi động), 1 thiết bị vẫn nối, không reset, không traceback, motor chỉ chạy 4 giây đầu nên lần này không phải do motor hay sụt áp; lúc đó có cắm USB. `/api/ping` đạt 45/950 lần. Board in `memory allocation failed` khi cấp 1,6–2,8 KB (vào nhánh `robot.stop('server_error')`), và `HTTP I/O error` ECONNABORTED, -203. RAM Python thấp nhất 448 byte. Đo trên bo, không motor: `robot.update` cấp phát khoảng 23 KB/giây, tắt scanner gần như không đổi; mỗi lần tạo status 4,2 KB, JSON 2446 byte; heap IDF (Wi-Fi/lwIP dùng) còn 25 KB sau `build_robot`, thấp hơn nữa khi tắt GC để đo. Giả thuyết chính, chưa kiểm chứng: heap Python nở lấn IDF nên Wi-Fi/socket thiếu bộ nhớ. Bản ghi bị nhiễu: `nmcli dev wifi` chạy mỗi 5 giây có thể làm laptop quét Wi-Fi, ping 1 lần/giây cũng thêm tải. Khi mở cổng USB, board khởi động lại. Ctrl-C vào main còn báo `RuntimeError: can't cancel self` ở `http_transport.py:166` khi dọn dẹp.
+
+- **7/11 — đã sửa theo giả thuyết thiếu RAM và nạp lên bo, CHƯA xác nhận hết lỗi trên web thật.** Nạp bằng `tools/deploy.py` mới: module dạng `.mpy` (mpy-cross 1.29.0.post2), `config.py` và `main.py` giữ dạng nguồn; `.py` cũ đã xóa khỏi bo. Sửa: dọn RAM mỗi giây và khi khởi động; `accept` gặp `ECONNABORTED` hoặc thiếu RAM không còn dừng xe và không tạo lại listener; request thiếu RAM trả 503, không dừng xe; bớt cấp phát trong `pid.py`, `encoder.py`, `robot.py`; status từ 2446 còn 1904 byte. Đo lại: RAM hệ thống sau `build_robot` từ 25 KB lên 88 KB (chưa bật Wi-Fi); `robot.update` chỉ giảm từ 23 còn 21 KB/giây. Lúc bật Wi-Fi, chưa có client: RAM hệ thống khoảng 28 KB, RAM Python thấp nhất khoảng 55 KB. 90 test đạt, JS đạt.
+
+- **7/11 — sau bản sửa RAM, xe đi được 9,09 m nhưng web vẫn lỗi; giả thuyết "heap Python lấn RAM Wi-Fi" KHÔNG được dữ liệu ủng hộ.** Ghi từ board: RAM hệ thống (IDF) đang khoảng 23 KB tụt còn 1–3 KB trong 2 giây và hồi lại khi laptop rời mạng, trong khi RAM Python không tăng tương ứng (152/230 giây có thiết bị nối ở dưới 5 KB). Không có `oom`, không có `HTTP I/O error`. Giả thuyết mới, chưa kiểm chứng: lượng gói mạng hoặc gói chờ gửi cho laptop chiếm RAM; laptop nối `CR7-GOAT` đặt ESP32 làm gateway mặc định nên toàn bộ ứng dụng có thể đang gửi lưu lượng Internet tới ESP32. Kiểm tra tiếp: lái bằng điện thoại (laptop rời `CR7-GOAT`), rồi thử chế độ STA. Cũng ghi nhận 1 lần `encoder_or_stall:front_right` khi lùi ở duty 1,0.
+
+- **7/11 — giả thuyết laptop cũng bị loại một phần, nghi nghẽn đường phát Wi-Fi của ESP32.** Điện thoại (laptop không ở `CR7-GOAT`, motor chưa chạy) cũng làm IDF tụt từ 21 KB xuống 1,6 KB. Log từng request (`rec4`): `read_request` nhanh (TB 15 ms, không lượt nào quá 1 giây), nhưng 36 phản hồi bị hủy ở mốc 2 giây khi đang gửi, kể cả phản hồi 12 byte; RAM Python vẫn còn, `oom` = 0; motor về 0 trong khoảng 1 giây sau khi mất lệnh. Suy luận chưa đo trực tiếp: gói chờ phát đầy bộ đệm Wi-Fi vì khung tin không tới được thiết bị. Lỗi này đã có từ 29/10 (iPhone và laptop, `4WAY_HANDSHAKE_TIMEOUT`), không phải do phần bản đồ mới. Kênh 11 có `9a9_Ext` (70%) và `VTVCAB_330720` (52%). Bước kế tiếp: thử chế độ STA với `Phong tang 2` để tách lỗi AP và lỗi phát của board.
+
+- **7/11 — tìm ra và sửa một nguyên nhân của thông báo "chưa phản hồi /api/status": mất gói Wi-Fi cộng ngưỡng quá chặt.** `config.py` đang ở `WIFI_MODE="STA"` với `Phong tang 2` (trong file có mật khẩu Wi-Fi, đừng commit). Tái hiện bằng Chrome thật, xe đứng yên, không gửi lệnh chạy: board trả lời trong 12–30 ms, không cancel, IDF không sập, nhưng ping từ laptop tới router (không qua ESP32) mất khoảng 2% và tới khoảng 270 ms. Mỗi request là một kết nối TCP mới; mất 1 gói làm TCP chờ khoảng 1 giây, vượt ngưỡng 1200 ms và trang dừng xe ngay. Sửa `index.html`: status chờ 2500 ms, 3 lần lỗi liên tiếp mới báo mất kết nối; lệnh điều khiển chờ 400 ms và thử lại ngay, 3 lần lỗi liên tiếp mới dừng. `COMMAND_TIMEOUT_MS` giữ 700 ms. Sửa `web_server.py`: trang HTML được 20 giây để gửi (giới hạn 2 giây từng cắt trang ở 63 KB). So sánh Chrome 3 phút: trước 14 request bị hủy và báo lỗi nhiều lần; sau 3 request bị hủy và không báo lỗi. **Chưa giải quyết:** cú sập IDF xuống dưới 1 KB chỉ thấy khi người thật dùng trang, chưa tái hiện được ở script hay Chrome không lái; chưa thử bản mới khi lái thật.
+
+- **7/11 — tự tái hiện được cú sập khi lái (xe kê bánh, motor chạy thật), CHƯA tìm ra nguyên nhân gốc.** Chrome thật bằng phím mũi tên: sập sau khoảng 35 giây; script gửi lệnh: sập sau khoảng 65–70 giây (3 lần lặp được). Cùng lượng lệnh nhưng tốc độ 0: không sập trong 3 phút. Khi sập: IDF từ 23 KB còn 1–2 KB trong 1 giây, tổng heap Python không tăng tương ứng, board vẫn báo nối và RSSI tốt, vòng điều khiển chạy đều, motor về 0; ping xe mất khoảng 94% trong khi ping router mất 2,4%; IDF thường không hồi kể cả khi hết traffic (có lúc tự hồi sau vài giây). Ping lúc chưa sập: motor đứng 7,1%, motor quay 6,5%. `disconnect()` + `connect()` KHÔNG cứu được (không nối lại trong khoảng 1,5 phút, IDF khoảng 5 KB); reset board thì hết. Chỉ Wi-Fi + motor + ngắt encoder, không web, không PID: 100 giây không sập, IDF 83–85 KB, nhưng chỉ 1 lần. IDF sau `connect_wifi` lúc 26 KB, lúc 85 KB, chưa rõ quy luật; chương trình thật luôn 26 KB (8/8 lần), kể cả khi nối Wi-Fi trước rồi soft reset; chưa thử được chạy web với 85 KB. Chưa đo điện áp nguồn. Bài T1 (motor không ngắt encoder) chưa chạy được do lỗi gửi code. Script tái hiện ở scratchpad: `exp.py`, `drive.py`, `expan.py`, `win.py`.
+
+- **7/11 — đã nạp toàn bộ `firmware/*.py`, `web/index.html` và `calibrate_track.py` lên bo, đọc lại khớp.** `config.py` đổi FL thành `(0.0022, 0.005)`; RR, RL, FR giữ nguyên. Bo khởi động tới "Web/PID san sang", không brownout; CHƯA thử web qua Wi-Fi hay chạy trên sàn. Đã nới vật cản trong `test_avoids_obstacle_placed_on_the_way_back` lên ±0,45 m vì test nhạy với Kp (88 test đạt). Mô phỏng đổi Kp FL từ 0,0016 đến 0,003: luôn về đích, nhưng có trường hợp không né (`avoid 0`) và sát vật tới 0,02 m. Lần nạp này ping thật đọc 17 cm, có thể HC-SR04 đã nối; chưa xác nhận cầu chia áp Echo.
+
+- **6/11 khuya — đo PID cả 4 bánh, xe kê bánh, không tải (96 lượt đạt và 1 lượt kẹt, không reset). Sau đó FL đã vào `config.py`.** Chạy SIMC, SIMC ×2 và bộ hiện tại ở ±60 và ±110 RPM. Theo luật chọn định trước: FL `(0.0022, 0.005)`, RR `(0.001, 0.003)`, RL `(0.002, 0.005)`, FR `(0.0002, 0.0128)`. Mô hình FR không tin cậy (K 189, τ 0,02 chạm biên lưới dò, đo ở duty 0,5–0,6), nên bộ của FR chỉ nhỉnh hơn `(0.002, 0.005)` trong sai số đo. RL và FR ở 60 RPM chưa ổn định với mọi bộ; RL đặc biệt dao động duty lớn. **FR yếu đi rõ trong lần đo này:** duty 0,6 giữ 108 RPM, 110 RPM cần duty 0,54–0,58, trong khi đo trước đó cùng tối duty 0,6 đạt 149 RPM và 120 RPM chỉ cần duty 0,40; chưa rõ nguyên nhân. Khuyên giữ FR `(0.002, 0.005)`, tìm nguyên nhân rồi đo lại. FL cũng kẹt nhiều lúc đo đặc tính (duty 0,25 và 0,30 không quay cả 4/4 lần dù 0,20 quay được).
+
+- **6/11 khuya — sau khi người dùng thay dây: `front_left` khi đã quay thì ổn, nhưng có lúc không khởi động được, ở CẢ HAI chiều.** Duty 0,5: khởi động từ đứng yên tiến 8/10, lùi 7/10, các lần hỏng nằm liền nhau; một lần tiến duty 0,75 cũng 0 xung. Chạy liên tục 30 giây mỗi chiều: trung vị 300 RPM, không nhịp nào tụt (112/112). Ba bánh còn lại đúng kênh, quay cả hai chiều. Vì lỗi không còn theo chiều lùi, giả thuyết dây IN1 yếu đi; nay nghi chổi than hoặc cổ góp motor (điểm chết theo vị trí rotor) hoặc mối hàn tại motor; chưa kiểm chứng. Chưa đo PID cho `front_left`. Thử xoay tay (duty 0,5): 51 lần khởi động đầu, kẹt 2 lần, đều khi lùi; khi đang kẹt mà chưa chạm bánh thử lại 0/6 lần quay; sau khi xoay tay 1/2 lần quay. Phù hợp với điểm chết theo vị trí rotor nhưng mẫu còn ít, chưa kết luận; chưa đổi motor sang kênh khác để kiểm chứng.
+
+- **6/11 khuya — `front_left` không lùi được.** Sau khi dây hết lệch kênh: lệnh tiến duty 0,3–1,0 cho 131–341 RPM, lệnh lùi 0 xung ở mọi duty (21/21 lượt). Khi lùi, ESP32 đặt GPIO27 (IN1) = 1, GPIO26 (IN2) = 0 đúng như code. Lỗi đã có từ trước khi chỉnh dây motor (các lượt PID lùi đều kẹt), nhưng lúc 17:20 cùng ngày bánh này vẫn lùi được. Nghi dây GPIO27 → IN1 hoặc nửa cầu OUT1 của L298N phía trên; chưa đo điện áp. **Đo lại sau đó: bánh đã lùi bình thường** (6/6 lượt, duty 0,5–1,0, cửa sổ 1,5 giây: lùi 224/305/337 RPM, tiến 196/221/236 RPM). Chưa xác nhận nguyên nhân; nếu do dây lỏng thì lỗi có thể quay lại. `front_right` không yếu như đã báo: 124–130 RPM ở duty 0,75 trong 1,5 giây, phù hợp với 170 RPM đo trong 2,5 giây; con số "hơn 200 xung" trước đó là tính sai (đúng là khoảng 85 xung).
+
+- **6/11 khuya — sau khi người dùng chỉnh dây motor `front_left`, kênh motor bị lệch: CHƯA đo được PID.** Lệnh chạy `front_right` (kênh `upper_b`, GPIO 25/33/32) làm bánh `rear_left` quay theo quan sát của người dùng; encoder GPIO36 của `front_right` ≈ 0 xung, encoder GPIO35 của `rear_left` tới khoảng 1048 xung sau 3 lượt ở duty 1,0. Trước lúc chỉnh dây, cùng bài đo cho `front_right` có xung đúng kênh. Cần kiểm tra lại dây giữa L298N và motor, rồi chạy kiểm tra từng kênh trước khi đo tiếp. Kết quả của lần chạy này không dùng được.
+
+- **6/11 tối — đã thay motor `front_right`, đo riêng bánh này (chỉ bánh này chạy, qua USB, không Wi-Fi): đạt.** Vòng hở cùng cách đo với motor cũ (từ đứng yên, 2,5 giây, mới đo 3 lần mỗi mức, cũ 1 lần), duty 0,6/0,75/0,9/1,0: tiến mới 149/170/188/202 RPM, cũ 266/323/–/366; lùi mới 151/175/188/204 RPM, cũ 0/0/335/360. Motor mới chậm hơn khoảng 45% ở duty cao, chưa rõ do motor, mức pin hay xung nhiễu của motor cũ. Từ đứng yên: lùi ổn định từ duty 0,5 (cũ 0,9); tiến ổn định từ 0,6 như cũ, ở 0,5 chưa ổn định (16/89/128 RPM). PID hiện tại `(0.002, 0.005, 0)` không đổi: 2 giây cuối đạt 57/90/117 RPM khi tiến và 61,5/90/123 RPM khi lùi cho mục tiêu 60/90/120; đảo chiều liên tục 4 đoạn không báo lỗi. **Chưa xác nhận:** chiều quay thật (encoder một kênh không biết chiều), chạy cùng `front_left` và cả 4 bánh, chạy có tải trên sàn. SG90/HC-SR04 chưa lắp.
+
+- **6/11 tối — mô phỏng web có né vật cản.** Chế độ mô phỏng: bấm lên bản đồ để đặt hoặc gỡ vật cản 30 cm, xe né theo trình tự của `navigator.py` (viết lại bằng JavaScript, hệ số riêng cho mô phỏng). Bản `index.html` này mới ở trên máy, CHƯA nạp lên bo.
+
+- **6/11 tối — viết xong tự quay về, tránh vật cản, quét HC-SR04; đã nạp lên bo, CHƯA chạy trên sàn.**
+  Hướng dẫn: `docs/TEST_QUAY_VE.md`. File mới: `firmware/odometry.py`, `scanner.py`, `navigator.py`,
+  `tools/calibrate_track.py`, `tests/test_navigator.py`. API mới: `/api/return`, `/api/map_reset`;
+  `/api/status` có thêm `pose`, `trail`, `nav`, `scan`. Nút Quay về trên web đã chạy với xe thật.
+  - Đổi cú đẩy khởi động: `BREAKAWAY_DUTY` 0,35 tăng dần `BREAKAWAY_RAMP_PER_S` 1,0/giây đến khi bánh
+    quay, thay cho mức cố định 0,75. Ảnh hưởng cả khi lái joystick; PID đo trước đó dùng mức cũ.
+  - Đã kiểm trên bo thật không chạy motor: import, logic chạy được, vòng lâu nhất 25 ms, ping không
+    có cảm biến mất 9 ms, RAM trống khoảng 80 KB. SG90 và HC-SR04 chưa được nối nên chưa kiểm phần cứng.
+  - Mô phỏng (không trượt): về cách điểm đầu khoảng 0,1–0,5 m. Xe xoay ít hơn 20% so với encoder tính:
+    lệch khoảng 1,7 m, nên phải hiệu chỉnh `TRACK_WIDTH_M`. Các thông số `RETURN_*` đều chưa chỉnh trên xe.
+
+- **6/11 — thêm panel “Bản đồ khám phá” vào `firmware/web/index.html`.** Tính vị trí ngay
+  trên trình duyệt từ `signed_distance_m` trong `/api/status` (1 lần/giây), hàm `mapStep`,
+  `mapScan`, `drawMap`. Mô phỏng có phòng ảo để thử vẽ vật cản. Chưa có HC-SR04/SG90 và
+  firmware chưa gửi điểm quét, nên trên xe thật chỉ vẽ đường đi. Khoảng cách hai bên bánh
+  đang để 16 cm (giá trị tạm, cần đo). Chưa thử đường đi trên xe thật.
+  Đổi giao diện sang chủ đề rừng rậm (chỉ CSS và SVG nhúng, không tải gì từ Internet). Bỏ ô
+  “Giới hạn tốc độ”: joystick hết cỡ gửi `max_rpm` bằng `MAX_RPM` của firmware (120), giới
+  hạn này vẫn còn trong `config.py` và `Robot.command`.
+  Thêm nút “Quay về” chỉ trong mô phỏng: xoay đầu rồi đi ngược `map.route` (không trượt bánh).
+  Bản này mới ở trên máy, CHƯA nạp lên bo; xe thật chưa có chế độ tự quay về.
+
+- **6/11 chiều — đo lại với pin đầy (kê không tải); thay mục đo trước về PID.** Đã nạp
+  `config.py`: RR `(0.001, 0.003, 0.0)`; FL, RL, FR `(0.002, 0.005, 0.0)`. Không có
+  brownout trong cả buổi đo pin đầy, kể cả khi chạy 4 bánh.
+  - Đo đáp ứng bậc và tính SIMC ra bộ riêng: FL `(0.0007, 0.0020)`, RR `(0.0006, 0.0015)`,
+    RL `(0.0008, 0.0020)`, FR `(0.0009, 0.0025)`. Duty đều hơn nhưng khởi động chậm, đẩy
+    0,75 nhiều hơn, nên không dùng. Bộ chia theo K cũng không tốt hơn `(0.002, 0.005)`.
+  - Chạy 4 bánh qua `Robot`: FR báo `encoder_or_stall` ở cả 2 đoạn phải quay lùi (Lùi 100,
+    Xoay phải 100). FL báo kẹt ở Tiến 60, dù chạy một mình thì ổn. Chạy lại lần 2: FR vẫn
+    kẹt ở cả 2 đoạn đó (4/4 lần quay lùi); FL kẹt ở Tiến 120, không kẹt ở Tiến 60, nên
+    lỗi FL thất thường và chỉ thấy khi tiến. Không có brownout.
+  - Thử FR vòng hở từ lúc đứng yên, mỗi mức 1 lần: một mình, tiến bắt đầu quay ở duty 0,60,
+    lùi ở 0,90 (lùi 0,75 không quay), đạt 360 RPM ở duty 1,0. Vậy chân IN và kênh L298N vẫn
+    chạy được cả hai chiều; `BREAKAWAY_DUTY` 0,75 thấp hơn ngưỡng lùi nên báo kẹt. Khi FL
+    tiến 0,4 còn FR lùi, FR không quay kể cả duty 1,0 và FL tụt từ 122 xuống 22 RPM khi tăng
+    duty FR. Nghi FR kẹt kéo sụt nguồn L298N trên; chưa đo điện áp, chưa kiểm tra cơ khí FR.
+  - Người dùng đã đặt mua motor mới cho FR. Sau khi lắp: kiểm tra chiều (`motor_inverted`),
+    encoder, rồi đo lại PID FR và chạy lại bài 4 bánh.
+  - FL cần duty 0,49–0,60 khi FR cùng quay, nhưng chỉ 0,27–0,28 khi FR đã dừng vì lỗi; hai
+    bánh sau gần như không đổi. Nghi nguồn hoặc dây của L298N phía trên (hai bánh trước)
+    bị sụt khi cùng chạy; chưa đo điện áp.
+  - RL dao động mạnh ở 80–100 RPM với mọi bộ hệ số, nghi cơ khí, chưa kiểm tra.
+
+- **6/11 — đo PID từng bánh trên xe (kê không tải, USB, không Wi-Fi).** Đã nạp lên
+  bo `config.py`, `encoder.py`, `wheel.py`, `main.py`, `pid.py`, `robot.py` (bản đã bỏ
+  encoder hai kênh; bánh 65 mm; SSID đổi thành `CR7-GOAT`). Đổi PID cả 4 bánh thành
+  `(0.002, 0.005, 0.0)` và đã nạp `config.py`. Chưa chạy đồng thời 4 bánh, chưa thử
+  trên sàn và chưa thử qua web.
+  - **Chưa giải quyết: sụt áp.** Bài đo lại dừng ở 21/96 sau 3 lần board tự khởi động
+    lại, firmware ghi `reason: brownout` (`raw_cause` 3), khi đang chạy một bánh:
+    RR 60 RPM, FR 120 RPM, RL 120 RPM. Khoảng 130 lần chạy trước đó không bị. Chưa đo
+    điện áp; người dùng báo pin đã hết và đang sạc, nên đây là nguyên nhân khả dĩ nhất.
+    Phải đo lại khi pin đầy trước khi thử 4 bánh.
+  - Lần dừng ở 48/66 trước đó là do người dùng rút nhầm cáp USB, không phải lỗi xe.
+  - Vòng hở, RPM theo duty 0,20 / 0,30 / 0,40 / 0,50: FL 40/137/222/276; RR
+    70/199/305/370; RL 0/2/182/256; FR 0/0/102/172. Tức khoảng 1000 RPM mỗi 1,0 duty,
+    nên Kp 0,008 quá lớn và là nguyên nhân chính gây dao động.
+  - Tốc độ thấp nhất giữ được (không tải): RL khoảng 96 RPM ở duty 0,32 (0,30 thì
+    dừng); FR khoảng 66–76 RPM ở duty 0,38–0,39 (0,37 còn chập chờn). FL và RR chạy tốt
+    ở 60 RPM. Dưới các mức này RL/FR kẹt rồi vọt, PID không sửa được; nghi do ma sát cơ
+    khí, chưa kiểm tra.
+  - Bác bỏ đề xuất cũ `ENCODER_SAMPLE_MS = 200`, Ki 0,0015: 200 ms thường dao động mạnh
+    hơn 100 ms, Ki 0,0015 để lại sai số lớn. Giữ 100 ms.
+  - Cú đẩy `BREAKAWAY_DUTY = 0,75` là nguồn vọt lúc khởi động của FL/RR, vì hai bánh
+    này chỉ cần khoảng 0,20. Chưa đổi; có thể tách ngưỡng theo từng bánh.
+
+- **4/11 — bỏ phần hỗ trợ encoder hai kênh (chỉ trên máy, CHƯA nạp lên bo).**
+  Xe chỉ có encoder một kênh (OUT) nên đã xóa phần không dùng: `encoder_b` và
+  `encoder_inverted` khỏi `WHEELS` + `validate_hardware()` (config.py);
+  `Encoder(pin_a, counts_per_rev, sample_ms, filter_tau, min_interval_us)` không
+  còn `pin_b`/`inverted`, bỏ `count`, `previous_count`, `position_counts`,
+  `raw_rpm` (thành biến cục bộ) và `signed_rpm` trong `status()`. Còn một bộ
+  đếm `travel_count`. Sửa theo `main.py`, `tools/check_encoders.py`,
+  `tools/test_motors.py`, test, README, WIRING. **Phải nạp đồng bộ `config.py`,
+  `main.py`, `encoder.py`, `wheel.py`** (chữ ký `Encoder` đổi: nạp lẻ sẽ lỗi).
+  58 unittest đạt; chưa chạy trên xe thật. Nếu sau này mua encoder hai kênh thì
+  phải thêm lại phần kênh B.
+
+- **4/11 — thêm quãng đường có dấu (chỉ trên máy, CHƯA nạp lên bo).**
+  `wheel.py`: `position_pulses` cộng/trừ số xung theo `self.direction` (chiều
+  đã lệnh gần nhất; xung quán tính sau khi dừng tính theo chiều cũ, vì
+  `stop()` giữ `direction`). `status()` thêm `position_pulses` và
+  `signed_distance_m`; `distance_m` giữ nguyên (tổng không dấu). Encoder 1
+  kênh nên đây là suy luận từ lệnh, không phải đo: sai vài xung khi bánh bị
+  đẩy tay/trôi lúc motor tắt, và `direction == 0` (chưa từng lệnh) tính +1.
+  Test mới `test_position_follows_commanded_direction_including_coasting`;
+  58 unittest đạt. Chưa kiểm trên xe thật và chưa hiện lên giao diện web.
+
+- **31/10 — bài thử cuối sau khi người dùng thay dây bánh trước: cả 4 bánh
+  chạy hết bài, không lỗi.** Chạy qua USB (nguồn từ máy tính), `Robot` thật,
+  ~85 s liên tục, `command()` gửi mỗi 50 ms, mục tiêu 60 RPM (throttle 0,5,
+  max_rpm 120). Trước khi thay dây, bài thử hai bánh trước/bốn bánh khóa
+  `encoder_or_stall` ở FR (4/5 lần), có lần cả FL; sau khi thay dây thì không
+  còn. Số xung (20 xung = 1 vòng bánh):
+  - Tiến 20 s: FL 394, RR 448, RL 410, FR 396 (nửa sau cao hơn nửa đầu, không
+    có dấu hiệu giảm dần). Lùi 15 s: FL 284, RR 315, RL 282, FR 287.
+  - Rẽ phải/trái 8 s: bên đích quay (FL 178, RL 179; RR 186, FR 159), bên còn
+    lại đứng. Đảo chiều đột ngột tiến-lùi-tiến 4 s mỗi pha: không lỗi.
+  - Chạy riêng FR 30 s tiến + 20 s lùi: tốc độ ổn định 60–80 RPM, không giảm.
+  - `duty` trung bình ở 60 RPM: FR 0,38–0,41 so với RR 0,19–0,20, FL 0,24–0,25,
+    RL 0,28–0,29, nên FR vẫn là bánh phải gắng sức nhất. Chu kỳ vòng lặp lớn
+    nhất 77 ms (ngưỡng 250 ms).
+  - Còn lại: PID dao động và vọt 8–15% trên mục tiêu (số đo RPM thô, mỗi xung
+    = 30 RPM ở cửa sổ 100 ms); chưa thử đặt xe xuống sàn có tải; chưa thử qua
+    web/joystick với nguồn mới; chưa thử nguồn sạc dự phòng. Chưa chỉnh
+    `ENCODER_SAMPLE_MS`/`Ki`; đề xuất 200 ms và 0,0015, chờ người dùng đồng ý.
+  - Mức kiểm chứng: đo trên bo thật nhưng chỉ một lần cho bài đầy đủ; lần
+    thành công riêng lẻ của FR trước khi thay dây cũng từng không lặp lại.
+
 - **29/10 tối — bản mới nhất, thay cho mục "HARDWARE_ENABLED=False" bên dưới:
   bo đang chạy `HARDWARE_ENABLED=True`, motor đã quay lại qua web/PID.** Bốn
   thay đổi trong phiên này (đã nạp, đọc lại khớp từng byte, backup trong

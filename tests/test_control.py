@@ -27,7 +27,6 @@ class MotorFake:
 class EncoderFake:
     def __init__(self):
         self.rpm = 0
-        self.b = None
         self.pulses = 0
         self.counts_per_rev = 100
         self.no_pulse_seconds = 0
@@ -83,6 +82,22 @@ class WheelTests(unittest.TestCase):
         w=make_wheel(); w.set_target_rpm(100); w.update(.05); w.stop()
         w.set_target_rpm(-100); w.update(.05)
         self.assertEqual(w.motor.output, 0)
+
+    def test_position_follows_commanded_direction_including_coasting(self):
+        w = make_wheel(); w.set_target_rpm(60); w.update(.05)
+        w.encoder.pulses = 100; w.update(.05)
+        self.assertEqual(w.position_pulses, 100)
+        w.set_target_rpm(0); w.encoder.pulses = 105; w.update(.05)
+        self.assertEqual(w.position_pulses, 105)  # quan tinh van tinh theo chieu tien cu
+        w.set_target_rpm(-60)
+        for _ in range(12): w.update(.05)
+        self.assertEqual(w.direction, -1)
+        w.encoder.pulses = 155; w.update(.05)
+        self.assertEqual(w.position_pulses, 55)
+        status = w.status()
+        self.assertEqual(status['position_pulses'], 55)
+        self.assertAlmostEqual(status['signed_distance_m'], 55 / 100 * math.pi * .065, delta=1e-3)
+        self.assertAlmostEqual(status['distance_m'], 155 / 100 * math.pi * .065, delta=1e-3)
 
     def test_no_encoder_pulses_latches_fault(self):
         w = make_wheel(); w.set_target_rpm(100); w.encoder.no_pulse_seconds = 10
@@ -216,20 +231,17 @@ class PinFake:
 
 
 class EncoderTests(unittest.TestCase):
-    def test_rising_edges_rpm_rollover_and_signed_counts(self):
+    def test_rising_edges_rpm_and_rollover(self):
         from encoder import Encoder
         machine=types.SimpleNamespace(Pin=PinFake,disable_irq=lambda:0,enable_irq=lambda x:None)
         with patch.dict(sys.modules,{'machine':machine}):
-            e=Encoder(1,None,100,filter_tau=0)
+            e=Encoder(1,100,filter_tau=0)
             for _ in range(15):e._irq(None)
             e.sample(.1);self.assertAlmostEqual(e.rpm,90);self.assertEqual(e.pulses,15)
-            e.count=e.previous_count=e.MASK-2;e.travel_count=e.previous_travel=e.MASK-2
+            e.travel_count=e.previous_travel=e.MASK-2
             for _ in range(5):e._irq(None)
             e.sample(.1);self.assertAlmostEqual(e.rpm,30);self.assertEqual(e.pulses,20)
-            e2=Encoder(1,2,100,filter_tau=0);e2.b.level=0
-            for _ in range(10):e2._irq(None)
-            e2.sample(.1);self.assertAlmostEqual(e2.rpm,-60);self.assertEqual(e2.pulses,10)
-            e2.close();self.assertIsNone(e2.a.handler)
+            e.close();self.assertIsNone(e.a.handler)
 
     def test_edges_closer_than_min_interval_are_rejected(self):
         import encoder
@@ -237,7 +249,7 @@ class EncoderTests(unittest.TestCase):
         now=[0]
         fake_time=types.SimpleNamespace(ticks_us=lambda:now[0],ticks_diff=lambda a,b:a-b)
         with patch.dict(sys.modules,{'machine':machine}), patch.object(encoder,'time',fake_time):
-            e=encoder.Encoder(1,None,20,filter_tau=0,min_interval_us=4000)
+            e=encoder.Encoder(1,20,filter_tau=0,min_interval_us=4000)
             for t in (0,100,1500,3999,4000,4050,9000,12000,15000):
                 now[0]=t;e._irq(None)
             # Canh that 0, 4000, 9000 (12000 chi cach 3000), 15000 cach 9000 la 6000.
@@ -292,7 +304,7 @@ class WebTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('wheels',public)
         self.assertNotIn('token',public)
         self.assertNotIn('test-password',json.dumps(public))
-        status=json.loads(self.server.route(b'GET',b'/api/status',self.headers,b'')[2])
+        status=json.loads(bytes(self.server.route(b'GET',b'/api/status',self.headers,b'')[2]))
         self.assertEqual(public['boot']['id'],status['boot']['id'])
         writer=Writer()
         await self.server.handle(Reader(b'GET /api/status HTTP/1.1\r\nHost: esp32\r\n\r\n'),writer)
@@ -309,7 +321,7 @@ class WebTests(unittest.IsolatedAsyncioTestCase):
         self.post(b'/api/stop',{'session':session});self.assertIsNone(self.robot.session)
         with self.assertRaises(HTTPError) as ctx:self.server.route(b'POST',b'/api/arm',{},b'{}')
         self.assertEqual(ctx.exception.status,401)
-        status=json.loads(self.server.route(b'GET',b'/api/status',self.headers,b'')[2])
+        status=json.loads(bytes(self.server.route(b'GET',b'/api/status',self.headers,b'')[2]))
         self.assertNotIn('session',status);self.assertNotIn('token',status);self.assertNotIn('LOGIN_PASSWORD',status)
     async def test_login_is_required_for_every_control_endpoint(self):
         for headers in ({}, {b'x-control-key':b'old-key'}, {b'authorization':b'Bearer invented'}):
@@ -354,7 +366,7 @@ class WebTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_login_remains_valid_after_long_inactivity(self):
         self.now+=365*24*60*60*1000
-        status=json.loads(self.server.route(b'GET',b'/api/status',self.headers,b'')[2])
+        status=json.loads(bytes(self.server.route(b'GET',b'/api/status',self.headers,b'')[2]))
         self.assertFalse(status['armed'])
         self.assertIn(self.token,self.server.logins)
         self.post(b'/api/arm',{})
@@ -383,7 +395,7 @@ class WebTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(self.token,self.server.logins)
         self.assertNotIn(first_other,self.server.logins)
         self.assertEqual(self.robot.session,session)
-        status=json.loads(self.server.route(b'GET',b'/api/status',self.headers,b'')[2])
+        status=json.loads(bytes(self.server.route(b'GET',b'/api/status',self.headers,b'')[2]))
         self.assertTrue(status['armed'])
 
     async def test_fragmented_http_response_and_cleanup(self):

@@ -55,7 +55,7 @@ class WiringTests(unittest.TestCase):
         class Encoder:
             def __init__(self,*args):self.args=args
             def close(self):pass
-        with patch.multiple(config,HARDWARE_ENABLED=True,LOGIN_USERNAME='admin',LOGIN_PASSWORD='test-password',WHEELS=self.wheels),patch.dict(sys.modules,{'motor':types.SimpleNamespace(Motor=Motor),'encoder':types.SimpleNamespace(Encoder=Encoder)}):
+        with patch.multiple(config,SCANNER_ENABLED=False,HARDWARE_ENABLED=True,LOGIN_USERNAME='admin',LOGIN_PASSWORD='test-password',WHEELS=self.wheels),patch.dict(sys.modules,{'motor':types.SimpleNamespace(Motor=Motor),'encoder':types.SimpleNamespace(Encoder=Encoder)}):
             robot=main.build_robot()
             self.assertEqual([args[:3] for args in calls],[(27,26,14),(17,16,22),(4,21,19),(25,33,32)])
             self.assertEqual([w.encoder.args[0] for w in robot.wheels],[39,34,35,36])
