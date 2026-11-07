@@ -58,7 +58,6 @@ class Scanner:
         self.sweeping = True
         self._since_sweep = 0.0
         self._index = 0
-        self.front_cm = None
         self.set_angle(self.angles[0])
         self._wait = self.settle
 

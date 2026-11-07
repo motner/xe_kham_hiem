@@ -219,6 +219,26 @@ run('clearLogin()');
   assert.equal(requests.filter(r=>r.path==='/api/arm').length,beforeDelayedStop);
   resolveStop({ok:true,json:async()=>({ok:true})});await new Promise(resolve=>setImmediate(resolve));
   assert.equal(run('state.session'),'test-session');
+  // Wi-Fi giat lam het han lenh: van giu joystick thi tu xin quyen lai, khong tha joystick.
+  ctx.fetch=normalFetch;
+  const armsBeforeExpiry=requests.filter(r=>r.path==='/api/arm').length,stopsBeforeExpiry=requests.filter(r=>r.path==='/api/stop').length;
+  let leaseGone=true;
+  ctx.fetch=async(path,opts={})=>{if(path==='/api/control'&&leaseGone){leaseGone=false;return{ok:false,status:409,json:async()=>({error:'command_timeout'})};}return normalFetch(path,opts)};
+  run("state.session='old-lease';state.direction='joystick';state.y=1;state.left=80;state.right=80;state.ready=true;state.connected=true");
+  await run('sendControl()');await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(run('state.session'),'test-session');assert.equal(run('state.direction'),'joystick');
+  assert.equal(requests.filter(r=>r.path==='/api/arm').length,armsBeforeExpiry+1);
+  assert.equal(requests.filter(r=>r.path==='/api/stop').length,stopsBeforeExpiry);
+  assert.equal(requests.filter(r=>r.path==='/api/control').at(-1).body.session,'test-session');
+  // Status bao het han lenh cung khong tha joystick; ly do khac thi van dung.
+  ctx.fetch=normalFetch;status.armed=false;status.reason='command_timeout';
+  await run('poll()');assert.equal(run('state.session'),'test-session');assert.equal(run('state.direction'),'joystick');
+  status.reason='released';await run('poll()');assert.equal(run('state.session'),null);assert.equal(run('state.direction'),'stop');
+  status.armed=true;delete status.reason;
+  // Loi khac tren lenh dieu khien van dung han.
+  ctx.fetch=async(path)=>path==='/api/control'?{ok:false,status:409,json:async()=>({error:'invalid_or_expired_session'})}:{ok:true,json:async()=>({ok:true})};
+  run("state.session='bad-lease';state.direction='joystick';state.y=1");
+  await run('sendControl()');assert.equal(run('state.session'),null);assert.equal(run('state.direction'),'stop');
   // A failed command releases the session and resets the joystick.
   run("state.session='failed-session';state.ready=true;state.connected=true;controlAvailability()");
   ctx.fetch=async()=>{throw new Error('network failure')};
@@ -226,7 +246,7 @@ run('clearLogin()');
   // A real local deadline replaces the browser's unhelpful AbortError and stops motion.
   const originalSetTimeout=ctx.setTimeout,originalClearTimeout=ctx.clearTimeout;
   let expireRequest,clearedDeadline=0;
-  ctx.setTimeout=(callback,ms)=>{assert.equal(ms,400);expireRequest=callback;return 'deadline'};
+  ctx.setTimeout=(callback,ms)=>{assert.equal(ms,600);expireRequest=callback;return 'deadline'};
   ctx.clearTimeout=id=>{if(id==='deadline')clearedDeadline++};
   ctx.fetch=async(path,opts)=>path==='/api/control'?await new Promise((resolve,reject)=>{
     opts.signal.addEventListener('abort',()=>{const e=new Error('signal is aborted without reason');e.name='AbortError';reject(e)},{once:true});
@@ -242,7 +262,7 @@ run('clearLogin()');
   expireCommand();await new Promise(resolve=>setImmediate(resolve));await new Promise(resolve=>setImmediate(resolve));
   assert.equal(run('state.session'),null);assert.equal(run('state.left'),0);
   assert.equal(run('state.direction'),'stop');assert.equal(clearedDeadline,3);
-  assert(els.events.children.some(row=>row.children[1].textContent.includes('/api/control sau 400 ms')));
+  assert(els.events.children.some(row=>row.children[1].textContent.includes('/api/control sau 600 ms')));
   assert(!els.events.children.some(row=>row.children[1].textContent.includes('signal is aborted without reason')));
   // The deadline also covers a response body which stalls after HTTP headers arrive.
   ctx.setTimeout=(callback,ms)=>{assert.equal(ms,1200);expireRequest=callback;return 'deadline'};
@@ -334,6 +354,8 @@ run('clearLogin()');
   near(run('map.x'),1);near(run('map.th'),.5);assert.equal(run('map.path.length'),3);assert.equal(run('map.walls.size'),1);assert.match(els['map-scan'].textContent,/42 cm/);
   setFw(fw({trail:[[1,0,.1],[2,0,.2]]}));assert.equal(run('map.path.length'),3,'khong ve lai diem cu');
   setFw(fw({trail:[[3,0,.3]]}));assert.equal(run('map.path.length'),4);
+  setFw(fw({trail:[[9,1,1]]}));assert.equal(run('map.path.at(-1)[2]'),1,'thieu diem thi ngat net');
+  setFw(fw({trail:[[10,1,1.1]]}));assert.equal(run('map.path.at(-1)[2]'),undefined,'diem lien tiep van noi net');
   setFw({...fw(),pose:{...fw().pose,epoch:8}});assert.equal(run('map.walls.size'),0,'firmware dat lai ban do');
   setFw(fw({scan:null,pose:{...fw().pose,epoch:8}}));assert.match(els['map-scan'].textContent,/Chưa bật/);
   setFw(fw({scan:{sweep_id:0,seen_echo:false,front_cm:null,points:[]},pose:{...fw().pose,epoch:8}}));assert.match(els['map-scan'].textContent,/Chưa nhận tín hiệu/);

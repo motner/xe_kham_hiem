@@ -60,6 +60,9 @@ class Robot:
 
     def command(self, session, sequence, throttle, steering, max_rpm):
         self.check_timeout()
+        if self.ready and not self.fault and not self.session and self.reason == 'command_timeout':
+            # Rieng voi loi khac: web duoc phep xin quyen lai neu nguoi lai van giu joystick.
+            raise ValueError('command_timeout')
         if not self.ready or self.fault or not self.session or session != self.session:
             raise ValueError('invalid_or_expired_session')
         if type(sequence) is not int or sequence < 0 or sequence > 1000000000 or sequence <= self.sequence:

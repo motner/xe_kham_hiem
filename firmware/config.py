@@ -26,7 +26,7 @@ ENCODER_FILTER_TAU = 0.10
 # Bo xung cach nhau < 4 ms (= 750 RPM banh voi dia 20 khe): do thuc te banh truoc phai
 # co hang tram xung gia < 3 ms do nhieu motor; motor TT that chi ~200-300 RPM.
 ENCODER_MIN_INTERVAL_US = 4000
-COMMAND_TIMEOUT_MS = 700
+COMMAND_TIMEOUT_MS = 1000  # Mat lenh lau hon thi tu dung; o 120 RPM xe di them toi da khoang 0,4 m.
 ACCEL_RPM_PER_SECOND = 100
 REVERSE_WAIT_MS = 400
 REVERSE_SAFE_RPM = 5
@@ -74,7 +74,7 @@ SERVO_US_PER_DEG = 10.5
 SERVO_INVERTED = False     # Dat True neu goc duong lam servo quay sang trai.
 
 # Vi tri tren ban do: can hieu chinh tren san bang tools/calibrate_track.py.
-TRACK_WIDTH_M = 0.16       # Do lai: tam banh trai toi tam banh phai.
+TRACK_WIDTH_M = 0.20       # Tam: tam-tam banh ~0,132 m x 1,5 do truot khi xoay. Chua hieu chuan tren san.
 WIFI_DISABLE_POWER_SAVE = True  # Can chu y IRQ GPIO36/39 tren ESP32 classic.
 
 # Thu tu cau hinh/test theo ket qua tren xe: truoc trai, sau phai, sau trai, truoc phai.

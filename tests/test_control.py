@@ -129,9 +129,15 @@ class RobotTests(unittest.TestCase):
     def test_deadman_rejects_delayed_command(self):
         self.command();self.robot.update(.05)
         self.now += config.COMMAND_TIMEOUT_MS + 1
-        with self.assertRaises(ValueError): self.command(seq=1)
+        with self.assertRaises(ValueError) as ctx: self.command(seq=1)
+        self.assertEqual(str(ctx.exception), 'command_timeout')
         self.assertIsNone(self.robot.session)
         self.assertTrue(all(w.motor.output == 0 for w in self.wheels))
+        # Xin quyen lai duoc sau khi het han; loi that khong bao la het han lenh.
+        self.session = self.robot.arm()
+        self.robot.fault = 'motor_stop_error'
+        with self.assertRaises(ValueError) as ctx: self.command(seq=1)
+        self.assertEqual(str(ctx.exception), 'invalid_or_expired_session')
 
     def test_stop_invalidates_session_and_old_release_cannot_stop_new(self):
         self.robot.release(self.session)

@@ -90,7 +90,7 @@ header .eyebrow{color:#c5e68a;letter-spacing:2.5px}header h1{color:#fbf6e6;lette
 <div class="legend map-legend"><span><i class="map-key"></i>Đường đi</span><span><i class="map-key back"></i>Đường về</span><span><i class="map-key start">×</i>Xuất phát</span><span><i class="map-key wall"></i>Điểm quét được</span><span id="map-box-key"><i class="map-key box"></i>Vật cản đặt tay</span><span><i class="map-key car"></i>Xe</span></div>
 <canvas id="map" class="map-canvas" role="img" aria-label="Bản đồ đường đi của xe và các vật cản"></canvas>
 <div class="map-stats"><span>X<b><span id="map-x">0,00</span> m</b></span><span>Y<b><span id="map-y">0,00</span> m</b></span><span>Hướng<b><span id="map-heading">0</span>°</b></span><span>Đã đi<b><span id="map-length">0,00</span> m</b></span><span>Vật cản<b id="map-walls">0</b></span></div>
-<div class="map-actions"><label for="map-track">Khoảng cách hai bên bánh (cm)<input id="map-track" type="number" min="5" max="60" step="0.5" value="16"></label><span class="map-buttons"><button id="map-clear-boxes" class="plain-button" type="button">Xóa vật cản</button><button id="map-reset" class="plain-button" type="button">Đặt lại bản đồ</button></span></div>
+<div class="map-actions"><label id="map-track-field" for="map-track">Khoảng cách hai bên bánh (cm)<input id="map-track" type="number" min="5" max="60" step="0.5" value="16"></label><span class="map-buttons"><button id="map-clear-boxes" class="plain-button" type="button">Xóa vật cản</button><button id="map-reset" class="plain-button" type="button">Đặt lại bản đồ</button></span></div>
 <p id="map-scan" class="hint" role="status"></p><p id="map-note" class="hint"></p>
 </div></section>
 <section class="panel" aria-labelledby="camera-title">
@@ -185,8 +185,9 @@ function mapFromFirmware(data){
   // Firmware dem diem bang seq: chi lay diem moi, moi diem chi ve mot lan.
   for(const [seq,x,y] of data.trail||[]){
     if(seq<=map.trailSeq)continue;
-    map.trailSeq=seq;
-    map.path.push([x,y]);if(map.path.length>4000)map.path.shift();
+    // Thieu diem (tai lai trang, mat ket noi lau): ngat net thay vi noi thang qua cho chua biet.
+    const gap=seq>map.trailSeq+1;map.trailSeq=seq;
+    map.path.push(gap?[x,y,1]:[x,y]);if(map.path.length>4000)map.path.shift();
   }
   for(const [seq,x,y] of data.scan?.points||[]){if(seq>map.scanSeq){map.scanSeq=seq;mapWall(x,y);}}
   map.dirty=true;
@@ -210,7 +211,7 @@ function drawMap(){
   $('map-length').textContent=vn(map.len,2);$('map-walls').textContent=map.walls.size;
   const live=state.mode==='live';
   $('map-track').disabled=live;
-  $('map-clear-boxes').hidden=live;$('map-clear-boxes').disabled=!map.boxes.length;$('map-box-key').hidden=live;$('map').classList?.toggle('placing',!live);
+  $('map-track-field').hidden=live;$('map-clear-boxes').hidden=live;$('map-clear-boxes').disabled=!map.boxes.length;$('map-box-key').hidden=live;$('map').classList?.toggle('placing',!live);
   const canvas=$('map'),g=canvas.getContext&&canvas.getContext('2d');if(!g)return;
   const w=canvas.clientWidth,h=canvas.clientHeight;if(!w||!h)return;
   const dpr=globalThis.devicePixelRatio||1;
@@ -227,7 +228,7 @@ function drawMap(){
   for(let v=Math.ceil((cy-h/2/scale)/step)*step;Y(v)>0;v+=step){g.moveTo(0,Y(v));g.lineTo(w,Y(v));}
   g.stroke();
   g.strokeStyle='#b4541c';g.lineWidth=3;g.lineJoin=g.lineCap='round';g.setLineDash([8,7]);g.beginPath();
-  const trace=line=>line.forEach(([x,y],i)=>i?g.lineTo(X(x),Y(y)):g.moveTo(X(x),Y(y)));
+  const trace=line=>line.forEach(([x,y,gap],i)=>i&&!gap?g.lineTo(X(x),Y(y)):g.moveTo(X(x),Y(y)));
   trace(map.path);if(map.path.length)g.lineTo(X(map.x),Y(map.y));g.stroke();g.setLineDash([]);
   if(map.beam){const b=map.beam;g.strokeStyle=b.hit?'#c07a1e':'#c9b88a';g.lineWidth=2;g.beginPath();g.moveTo(X(b.x),Y(b.y));g.lineTo(X(b.x+b.len*Math.sin(b.a)),Y(b.y+b.len*Math.cos(b.a)));g.stroke();}
   g.fillStyle='#7a5230';g.strokeStyle='#4f3419';g.lineWidth=2;for(const [x,y] of map.boxes){const k=.3*scale;g.fillRect(X(x)-k/2,Y(y)-k/2,k,k);g.strokeRect(X(x)-k/2,Y(y)-k/2,k,k);}
@@ -470,7 +471,8 @@ function tick(){const now=performance.now();const dt=Math.min((now-state.lastTic
 let polling=false,controlBusy=false,controlPending=false,armGeneration=0;
 // Wi-Fi mat vai % goi; mat 1 goi khi mo ket noi la TCP cho khoang 1 giay moi gui lai.
 // Firmware van tu dung xe sau COMMAND_TIMEOUT_MS neu khong con nhan duoc lenh.
-const STATUS_TIMEOUT_MS=2500,STATUS_FAILS_OFFLINE=3,CONTROL_TIMEOUT_MS=400,CONTROL_FAILS_STOP=3;
+// CONTROL_TIMEOUT_MS phai nho hon han do de lenh gui lai con kip toi truoc khi xe dung.
+const STATUS_TIMEOUT_MS=2500,STATUS_FAILS_OFFLINE=3,CONTROL_TIMEOUT_MS=600,CONTROL_FAILS_STOP=3;
 let statusFailures=0,controlFailures=0;
 let releaseControlTask=Promise.resolve();
 async function requestJSON(path,options,timeout){
@@ -537,7 +539,10 @@ async function sendControl(){
   }catch(e){
     if(token===state.authToken&&generation===armGeneration){
       const transient=e?.name==='TimeoutError'||e?.name==='TypeError';
-      if(transient&&++controlFailures<CONTROL_FAILS_STOP&&state.session)controlPending=true;
+      if(e?.message==='command_timeout'&&state.direction!=='stop'){
+        // Wi-Fi giat lam het han lenh: xe da tu dung; van giu joystick thi xin quyen lai.
+        state.session=null;state.sequence=0;controlPending=true;log('Wi-Fi trễ, xe dừng tạm rồi tự chạy lại');
+      }else if(transient&&++controlFailures<CONTROL_FAILS_STOP&&(state.session||state.direction!=='stop'))controlPending=true;
       else{controlFailures=0;log('Dừng do lỗi lệnh: '+e.message);emergencyStop();}
     }
   }finally{
@@ -578,7 +583,9 @@ async function poll(){
     statusFailures=0;
     if(!state.connected)log('Đã kết nối web server ESP32');state.connected=true;state.ready=!!data.motor_ready;
     state.maxRpm=data.max_rpm||120;
-    if(state.session&&(!data.armed||!state.ready)){disarm();stop();log('Thiết bị dừng: '+(data.fault||data.reason));}
+    // Het han lenh khi van giu joystick: sendControl tu xin quyen lai, khong tha joystick.
+    const leaseExpired=data.reason==='command_timeout'&&state.ready&&state.direction!=='stop';
+    if(state.session&&(!data.armed||!state.ready)&&!leaseExpired){disarm();stop();log('Thiết bị dừng: '+(data.fault||data.reason));}
     $('connection').textContent='● ESP32 trực tuyến';$('connection').className='badge';
     const wheelFaults=Array.isArray(data.wheel_faults)?data.wheel_faults:[];
     const isolatedStallTest=data.stop_all_on_encoder_stall===false;
