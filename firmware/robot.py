@@ -2,7 +2,6 @@ import math
 import time
 import os
 import binascii
-from navigator import ReturnNavigator
 from odometry import Odometry
 
 
@@ -21,8 +20,6 @@ class Robot:
         self.wheels, self.cfg, self.clock = wheels, cfg, clock
         self.scanner = scanner
         self.odometry = Odometry(cfg.TRACK_WIDTH_M)
-        self.navigator = ReturnNavigator(cfg, self.odometry, scanner)
-        self._last_left = self._last_right = None
         self.ready = bool(wheels) and len(wheels) == 4
         self.session = None
         self.sequence = -1
@@ -33,9 +30,7 @@ class Robot:
         self.left = self.right = 0.0
 
     def check_timeout(self):
-        # Khi tu quay ve khong can lenh lien tuc: xe van ve duoc neu mat Wi-Fi.
-        if (self.session and not self.navigator.active
-                and elapsed_ms(self.clock(), self.last_command) > self.cfg.COMMAND_TIMEOUT_MS):
+        if self.session and elapsed_ms(self.clock(), self.last_command) > self.cfg.COMMAND_TIMEOUT_MS:
             self.stop('command_timeout')
 
     def clear_recoverable_faults(self):
@@ -47,8 +42,7 @@ class Robot:
         for wheel in self.wheels:
             if wheel.fault and wheel.fault.startswith('encoder_or_stall:'):
                 print('Xoa loi:', wheel.fault)
-                wheel.fault = None
-                wheel.stall_elapsed = 0.0
+                wheel.clear_stall()
 
     def arm(self):
         self.check_timeout()
@@ -74,11 +68,10 @@ class Robot:
             raise ValueError('invalid_number')
         if not (-1 <= throttle <= 1 and -1 <= steering <= 1 and 0 <= max_rpm <= self.cfg.MAX_RPM):
             raise ValueError('command_out_of_range')
-        self.navigator.cancel()  # Lai bang joystick thi huy quay ve.
-        self.odometry.recording = True
         left, right = throttle + steering, throttle - steering
         scale = max(1, abs(left), abs(right))
-        self.left, self.right = left / scale * max_rpm, right / scale * max_rpm
+        self.left = self._drivable(left / scale * max_rpm)
+        self.right = self._drivable(right / scale * max_rpm)
         self.sequence = sequence
         self.last_command = self.clock()
         self.reason = 'running' if self.left or self.right else 'idle'
@@ -89,81 +82,36 @@ class Robot:
             if wheel.requested == 0:
                 wheel.stop()
 
-    def _set_sides(self, left, right):
-        self.left, self.right = left, right
-        for wheel in self.wheels:
-            wheel.set_target_rpm(left if wheel.name.endswith('_left') else right)
-            if wheel.requested == 0:
-                wheel.stop()
-
-    def start_return(self, session=None):
-        """Bat dau tu quay ve; tra ve session de nguoi goi huy bang release(session)."""
-        self.check_timeout()
-        if self.ready and not self.session:
-            self.clear_recoverable_faults()
-        if not self.ready or self.fault:
-            raise ValueError(self.fault or 'hardware_disabled')
-        if self.session and session != self.session:
-            raise ValueError('controller_busy')
-        if any(wheel.fault for wheel in self.wheels):
-            raise ValueError('wheel_fault')
-        if len(self.odometry.route) < 2:
-            raise ValueError('no_route')
-        self.stop('returning')
-        self.session = binascii.hexlify(os.urandom(16)).decode()
-        self.sequence = -1
-        self.last_command = self.clock()
-        self.odometry.recording = False
-        self.navigator.start()
-        return self.session
+    def _drivable(self, rpm):
+        # Duoi nguong banh chay giat: dung han de xe xoay quanh ben trong khi re gat.
+        return rpm if abs(rpm) >= self.cfg.MIN_WHEEL_RPM else 0
 
     def reset_map(self):
-        if self.navigator.active or self.left or self.right:
+        if self.left or self.right:
             raise ValueError('vehicle_moving')
         self.odometry.reset()
 
     def _update_odometry(self):
-        # Moi ben lay trung binh cac banh con tot: banh loi khong con dem xung.
+        # Cong quang duong moi cua tung banh, khong cong gia tri tich luy: banh loi roi hoi lai
+        # lam doi so banh tinh trung binh, neu khong vi tri tren ban do se nhay.
         left = right = 0.0
         left_count = right_count = 0
         for wheel in self.wheels:
+            distance = wheel.signed_distance_m()
+            moved = distance - wheel.last_distance_m
+            wheel.last_distance_m = distance
             if wheel.fault:
                 continue
             if wheel.name.endswith('_left'):
-                left += wheel.signed_distance_m()
+                left += moved
                 left_count += 1
             else:
-                right += wheel.signed_distance_m()
+                right += moved
                 right_count += 1
-        if not left_count or not right_count:
-            self._last_left = None
-            return
-        left /= left_count
-        right /= right_count
-        if self._last_left is not None:
-            self.odometry.update(left - self._last_left, right - self._last_right)
-        self._last_left, self._last_right = left, right
-
-    def _update_navigation(self, dt):
-        if self.scanner:
-            self.scanner.update(dt, self.odometry)
-        if not self.navigator.active:
-            return
-        if any(wheel.fault for wheel in self.wheels):
-            self.stop('return_wheel_fault')
-            return
-        left, right = self.navigator.update(dt)
-        if self.navigator.active:
-            self.reason = 'returning'
-            self._set_sides(left, right)
-        else:
-            self.stop(self.navigator.result)
+        if left_count and right_count:
+            self.odometry.update(left / left_count, right / right_count)
 
     def stop(self, reason='stopped'):
-        self.navigator.cancel()
-        if self.scanner:
-            self.scanner.defer = False
-        self.odometry.recording = True
         self.session = None
         self.left = self.right = 0
         self.reason = reason
@@ -193,7 +141,8 @@ class Robot:
         if self.fault:
             return
         try:
-            self._update_navigation(dt)
+            if self.scanner:
+                self.scanner.update(dt, self.odometry)
             for wheel in self.wheels:
                 wheel.update(dt)
                 if wheel.fault:
@@ -220,7 +169,6 @@ class Robot:
                 'stop_all_on_encoder_stall': getattr(self.cfg, 'STOP_ALL_ON_ENCODER_STALL', True),
                 'loop_ms': self.loop_ms, 'wheels': wheels,
                 'pose': self.odometry.status(), 'trail': self.odometry.trail,
-                'nav': self.navigator.status(),
                 'scan': self.scanner.status() if self.scanner else None}
 
     def close(self):

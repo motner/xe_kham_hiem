@@ -17,6 +17,7 @@ LOGIN_USERNAME = "admin"
 LOGIN_PASSWORD = "24122006"
 PWM_FREQUENCY = 1000
 MAX_RPM = 120
+MIN_WHEEL_RPM = 40  # Lenh joystick thap hon thi banh dung han; do tren xe ke banh: duoi muc nay banh giat.
 MAX_DUTY = 1.0  # Toi da 100% duty PWM cho ca 4 banh.
 CONTROL_PERIOD_MS = 50
 MAX_LOOP_GAP_MS = 250
@@ -31,6 +32,9 @@ REVERSE_WAIT_MS = 400
 REVERSE_SAFE_RPM = 5
 STALL_TIMEOUT_MS = 1500
 STALL_MIN_DUTY = 0.20
+# Banh bao stall duoc nghi roi tu thu lai; het so lan thi cho lan keo joystick moi.
+STALL_RETRY_MS = 2000
+STALL_MAX_RETRIES = 3
 # Banh dung yen qua BREAKAWAY_DELAY_MS ma co muc tieu RPM: cap it nhat duty nay de thang ma sat tinh.
 # Tang dan tu BREAKAWAY_DUTY den khi banh nhuc nhich: banh nhay khong bi vot, banh kho van len duoc 100%.
 # Do bang bench: FR (motor moi) tu dung yen on dinh tu duty 0.6 khi tien, 0.5 khi lui.
@@ -69,24 +73,8 @@ SERVO_CENTER_US = 1500     # Chinh neu cam bien chua nhin thang khi o goc 0.
 SERVO_US_PER_DEG = 10.5
 SERVO_INVERTED = False     # Dat True neu goc duong lam servo quay sang trai.
 
-# Vi tri va quay ve: cac gia tri duoi day can chinh lai tren xe that.
+# Vi tri tren ban do: can hieu chinh tren san bang tools/calibrate_track.py.
 TRACK_WIDTH_M = 0.16       # Do lai: tam banh trai toi tam banh phai.
-RETURN_DRIVE_RPM = 110     # Cao hon toc do toi thieu da do cua RL va FR.
-RETURN_TURN_RPM = 110
-RETURN_STEER_RPM = 10
-RETURN_STEER_GAIN = 40
-RETURN_TURN_TOLERANCE_DEG = 25
-RETURN_TURN_COAST_S = 0.35 # Xe con xoay tiep sau khi ngat motor: do lai tren san.
-RETURN_REALIGN_DEG = 55
-RETURN_WAYPOINT_M = 0.40    # Nhin xa ngan nay tren duong cu; qua gan thi xe xoay lien tuc.
-RETURN_HOME_M = 0.15
-RETURN_SETTLE_MS = 400
-RETURN_STOP_CM = 45        # Gom ca quang duong xe con troi sau khi ngat motor.
-RETURN_CLEAR_CM = 70       # Mot huong phai trong it nhat chung nay moi duoc chon.
-RETURN_OBSTACLE_RADIUS_M = 0.40
-RETURN_AVOID_M = 0.50
-RETURN_MAX_AVOID = 6
-RETURN_TIMEOUT_S = 180
 WIFI_DISABLE_POWER_SAVE = True  # Can chu y IRQ GPIO36/39 tren ESP32 classic.
 
 # Thu tu cau hinh/test theo ket qua tren xe: truoc trai, sau phai, sau trai, truoc phai.
@@ -109,7 +97,7 @@ WHEELS = [
      "counts_per_rev": 20, "diameter_mm": 65, "pid": (0.0022, 0.005, 0.0)},
     {"name": "rear_right", "motor_channel": "lower_a",
      "encoder_a": 34, "motor_inverted": False,
-     "counts_per_rev": 20, "diameter_mm": 65, "pid": (0.001, 0.003, 0.0)},
+     "counts_per_rev": 20, "diameter_mm": 65, "pid": (0.002, 0.005, 0.0)},
     {"name": "rear_left", "motor_channel": "lower_b",
      "encoder_a": 35, "motor_inverted": False,
      "counts_per_rev": 20, "diameter_mm": 65, "pid": (0.002, 0.005, 0.0)},
@@ -130,22 +118,18 @@ def validate_hardware():
         return
     if DRIVER_TYPE != "IN1_IN2_PWM":
         raise ValueError("Driver chua duoc ho tro: " + DRIVER_TYPE)
-    if not (0 < MAX_DUTY <= 1 and 0 < MAX_RPM <= 200):
+    if not (0 < MAX_DUTY <= 1 and 0 < MAX_RPM <= 200 and 0 <= MIN_WHEEL_RPM < MAX_RPM):
         raise ValueError("MAX_DUTY / MAX_RPM khong hop le")
     if not (0 < CONTROL_PERIOD_MS <= ENCODER_SAMPLE_MS < STALL_TIMEOUT_MS):
         raise ValueError("Chu ky dieu khien/encoder/stall khong hop le")
     if not (CONTROL_PERIOD_MS < MAX_LOOP_GAP_MS < COMMAND_TIMEOUT_MS):
         raise ValueError("MAX_LOOP_GAP_MS / COMMAND_TIMEOUT_MS khong hop le")
     if not (ACCEL_RPM_PER_SECOND > 0 and REVERSE_WAIT_MS >= ENCODER_SAMPLE_MS and REVERSE_SAFE_RPM >= 0
-            and 0 < STALL_MIN_DUTY <= MAX_DUTY and ENCODER_FILTER_TAU >= 0 and PWM_FREQUENCY > 0):
+            and 0 < STALL_MIN_DUTY <= MAX_DUTY and STALL_RETRY_MS > 0 and STALL_MAX_RETRIES >= 0 and ENCODER_FILTER_TAU >= 0 and PWM_FREQUENCY > 0):
         raise ValueError("Thong so dieu khien khong hop le")
     if not (0.05 <= TRACK_WIDTH_M <= 1 and SCAN_PERIOD_MS > 0 and SCAN_SETTLE_MS > 0 and SCAN_ANGLES
             and all(-90 <= a <= 90 for a in SCAN_ANGLES) and GUARD_PERIOD_MS > 0 and 0 < SCAN_MAX_CM <= 400):
         raise ValueError("Thong so quet/ban do khong hop le")
-    if not (0 < RETURN_DRIVE_RPM + RETURN_STEER_RPM <= MAX_RPM and 0 < RETURN_TURN_RPM <= MAX_RPM
-            and RETURN_DRIVE_RPM > RETURN_STEER_RPM >= 0 and RETURN_STOP_CM < RETURN_CLEAR_CM <= SCAN_MAX_CM
-            and RETURN_MAX_AVOID > 0 and RETURN_TIMEOUT_S > 0):
-        raise ValueError("Thong so quay ve khong hop le")
     expected = ('front_left', 'rear_right', 'rear_left', 'front_right')
     if len(WHEELS) != 4 or tuple(w['name'] for w in WHEELS) != expected:
         raise ValueError("WHEELS can dung thu tu test FL, RR, RL, FR")

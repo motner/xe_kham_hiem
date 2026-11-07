@@ -22,24 +22,16 @@ class Scanner:
         self.offset_m = cfg.SCANNER_OFFSET_M
         self.sweeping = False
         self.sweep_id = 0
-        self.last_sweep = {}
         self.points = []
         self.point_seq = 0
         self.front_cm = None
         self.seen_echo = False
         self._index = 0
-        self._current = {}
         self._wait = self.settle
         self._since_sweep = 0.0
         self._since_ping = self.guard_period
         self._since_point = 1.0
-        self._recent = []
-        self._requested = False
-        self.defer = False  # Navigator dat True khi dang xoay: lui lan quet dinh ky.
         self.set_angle(0)
-
-    def request_sweep(self):
-        self._requested = True
 
     def _measure(self):
         value = self.ping()
@@ -64,12 +56,9 @@ class Scanner:
 
     def _begin_sweep(self):
         self.sweeping = True
-        self._requested = False
         self._since_sweep = 0.0
         self._index = 0
-        self._current = {}
         self.front_cm = None
-        self._recent = []
         self.set_angle(self.angles[0])
         self._wait = self.settle
 
@@ -80,13 +69,11 @@ class Scanner:
         if self._index >= len(self.angles):
             # Servo da ve giua va on dinh: tro lai canh phia truoc.
             self.sweeping = False
-            self.last_sweep = self._current
             self.sweep_id += 1
             self._since_ping = self.guard_period
             return
         angle = self.angles[self._index]
         cm = self._measure()
-        self._current[angle] = cm
         self._add_point(pose, angle, cm)
         self._index += 1
         if self._index < len(self.angles):
@@ -101,7 +88,7 @@ class Scanner:
         if self.sweeping:
             self._update_sweep(dt, pose)
             return
-        if self._requested or (self._since_sweep >= self.period and not self.defer):
+        if self._since_sweep >= self.period:
             self._begin_sweep()
             return
         self._since_ping += dt
@@ -112,18 +99,13 @@ class Scanner:
             return
         self._since_ping = 0.0
         cm = self._measure()
-        # Trung vi 3 lan do gan nhat: mot tieng vong sai khong lam xe dung nham.
-        self._recent.append(cm if cm is not None else 1e9)
-        if len(self._recent) > 3:
-            self._recent.pop(0)
-        middle = sorted(self._recent)[len(self._recent) // 2]
-        self.front_cm = None if middle >= 1e9 else middle
+        self.front_cm = cm
         if cm is not None and self._since_point >= 0.3:
             self._since_point = 0.0
             self._add_point(pose, 0, cm)
 
     def status(self):
-        return {'sweeping': self.sweeping, 'sweep_id': self.sweep_id, 'seen_echo': self.seen_echo,
+        return {'sweep_id': self.sweep_id, 'seen_echo': self.seen_echo,
                 'front_cm': None if self.front_cm is None else round(self.front_cm, 1),
                 'points': self.points}
 

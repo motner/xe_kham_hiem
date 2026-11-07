@@ -177,7 +177,7 @@ class WebServer:
             return 200, 'application/json', json.dumps({
                 'message': 'ESP32 online', 'boot': self.boot_info.snapshot()}).encode()
         if path not in (b'/api/login', b'/api/logout', b'/api/arm', b'/api/control', b'/api/stop',
-                        b'/api/return', b'/api/map_reset'):
+                        b'/api/map_reset'):
             raise HTTPError(404, 'not_found')
         if method != b'POST':
             raise HTTPError(405, 'use_post')
@@ -200,11 +200,6 @@ class WebServer:
                 result = {'session': self.robot.arm()}
                 self.control_owner = token
                 self.control_session = result['session']
-            elif path == b'/api/return':
-                result = {'session': self.robot.start_return(
-                    self.control_session if token == self.control_owner else None)}
-                self.control_owner = token
-                self.control_session = result['session']
             elif path == b'/api/map_reset':
                 self.robot.reset_map()
                 result = {'ok': True}
@@ -217,7 +212,6 @@ class WebServer:
             else:
                 if token != self.control_owner:
                     raise HTTPError(403, 'not_control_owner')
-                # Tai lai trang khi xe dang tu quay ve: trang khong con session nhung van huy duoc.
                 self.robot.release(data.get('session') or self.control_session)
                 result = {'ok': True}
         except ValueError as error:

@@ -320,57 +320,24 @@ run('clearLogin()');
   run('mapLive([0,0,0,0].map(()=>({signed_distance_m:9})))');near(run('map.y'),.5);assert.deepEqual(run('map.last'),[9,9]);
   run('mapLive([{},{},{},{}])');assert.equal(els['map-status'].textContent,'Firmware chưa gửi vị trí');
   run('map.y=5;mapReset()');near(run('map.y'),0);assert.equal(run('map.path.length'),1);run('map.track=.16');
-  // Quay ve trong mo phong: xoay dau, di nguoc lai duong cu, huy duoc, khong gui lenh toi xe.
-  const fetchBefore=requests.length,step=n=>{for(let i=0;i<n;i++){now+=200;run('tick()')}};
-  run('stop();mapReset();state.rpm=[0,0,0,0];map.track=.16;updateJoystick(0,.7)');step(25);run('updateJoystick(.5,.5)');step(10);run('updateJoystick(0,.6)');step(15);run('stop()');step(8);
-  assert(run('map.route.length')>5);const farAway=run('Math.hypot(map.x,map.y)');assert(farAway>.8,'farAway '+farAway);
-  els['map-return'].trigger('click');assert.equal(run('map.ret'),true);step(4);
-  assert(Math.abs(run('map.th'))>0,'xoay');assert(run('state.left*state.right')<0,'xoay tai cho truoc khi di');
-  let guard=0;while(run('map.ret')&&guard++<1500){now+=200;run('tick()')}
-  assert.equal(run('map.ret'),false,'chua ve sau '+guard+' buoc');assert(run('Math.hypot(map.x,map.y)')<.08,'lech '+run('Math.hypot(map.x,map.y)'));
-  assert.equal(run('state.left'),0);assert.equal(els['drive-status'].textContent,'Đã về điểm xuất phát · mô phỏng');assert.equal(run('map.route.length'),1);
-  run('updateJoystick(0,.7)');step(15);run('stop()');step(6);els['map-return'].trigger('click');step(3);run('updateJoystick(0,.5)');assert.equal(run('map.ret'),false,'joystick huy');
-  run('stop()');els['map-return'].trigger('click');step(2);win.trigger('keydown',{code:'Space'});assert.equal(run('map.ret'),false,'phim cach huy');assert.equal(run('state.left'),0);
-  els['map-return'].trigger('click');els['map-return'].trigger('click');assert.equal(run('map.ret'),false,'bam lai de huy');
-  assert.equal(requests.length,fetchBefore,'mo phong khong gui lenh');
-  run('stop();mapReset();state.mode="live";startReturn();state.mode="demo"');assert.equal(run('map.ret'),false,'xe that khong co quay ve');
-  run('stop();mapReset()');
-  // Ne vat can trong mo phong: dat vat can tren duong ve, xe khong duoc dam va van ve duoc.
-  const boxGap=()=>run('map.boxes.reduce((m,b)=>Math.min(m,Math.hypot(Math.max(Math.abs(map.x-b[0])-.15,0),Math.max(Math.abs(map.y-b[1])-.15,0))),9)');
-  run('stop();mapReset();state.rpm=[0,0,0,0];map.track=.16;updateJoystick(0,.7)');step(45);run('stop()');step(8);
-  const straightY=run('map.y');assert(straightY>1.2,'y '+straightY);
-  els['map-return'].trigger('click');step(25);
-  assert.equal(run('mapAddBox(map.x-.05,map.y-.65)'),true,'dat duoc vat can phia truoc xe');let closest=9,avoided=0;guard=0;
-  while(run('map.ret')&&guard++<3000){now+=200;run('tick()');closest=Math.min(closest,boxGap());avoided=Math.max(avoided,run('map.nav?.avoid||0'));}
-  assert.equal(run('map.ret'),false,'chua ve sau '+guard+' buoc');assert(avoided>=1,'chua ne lan nao');assert(closest>.1,'qua sat vat can '+closest);
-  assert.equal(els['drive-status'].textContent,'Đã về điểm xuất phát · mô phỏng');assert(run('Math.hypot(map.x,map.y)')<.1,'lech '+run('Math.hypot(map.x,map.y)'));
-  assert.equal(run('map.boxes.length'),1,'vat can van con sau khi ve');
-  // Bam lai dung vat can thi go, qua sat xe thi tu choi.
+  // Dat vat can trong mo phong: bam lai thi go, qua sat xe thi tu choi, khong gui lenh toi xe.
+  const fetchBefore=requests.length;
+  run('stop();mapReset();map.track=.16');assert.equal(run('mapAddBox(1,1)'),true);assert.equal(run('map.boxes.length'),1);
   run('mapAddBox(map.boxes[0][0],map.boxes[0][1])');assert.equal(run('map.boxes.length'),0);assert.equal(run('mapAddBox(map.x,map.y)'),false);
-  // Bi vay kin: xe dung han va bao khong tim duoc duong.
-  run('stop();mapReset();updateJoystick(0,.7)');step(30);run('stop()');step(8);
-  run('for(const [dx,dy] of [[0,.55],[.3,.55],[-.3,.55],[0,-.55],[.3,-.55],[-.3,-.55],[.55,0],[.55,.3],[.55,-.3],[-.55,0],[-.55,.3],[-.55,-.3],[.55,.55],[-.55,.55],[.55,-.55],[-.55,-.55]])map.boxes.push([map.x+dx,map.y+dy])');
-  closest=9;els['map-return'].trigger('click');guard=0;while(run('map.ret')&&guard++<3000){now+=200;run('tick()');closest=Math.min(closest,boxGap());}
-  assert.equal(run('map.ret'),false,'chua dung');assert.match(els['drive-status'].textContent,/Không tìm được đường về/);assert.equal(run('state.left'),0);assert(closest>.05,'dam khi bi vay '+closest);
+  assert.equal(requests.length,fetchBefore,'mo phong khong gui lenh');
   run('stop();mapReset()');
-  // Du lieu firmware: vi tri, duong di, duong ve, diem quet; moi diem chi ve mot lan.
+  // Du lieu firmware: vi tri, duong di, diem quet; moi diem chi ve mot lan.
   run('stop();mapReset();map.epoch=null;map.trailSeq=0;map.scanSeq=0');
-  const fw=(extra)=>({pose:{x:1,y:2,th:.5,length_m:3,route:9,epoch:7},trail:[],nav:{active:false,state:'idle',result:null,avoid:0},scan:{sweeping:false,sweep_id:2,seen_echo:true,front_cm:42.4,points:[]},...extra});
+  const fw=(extra)=>({pose:{x:1,y:2,th:.5,length_m:3,epoch:7},trail:[],scan:{sweep_id:2,seen_echo:true,front_cm:42.4,points:[]},...extra});
   run('globalThis.fwData=null');const setFw=d=>{ctx.fwData=d;run('mapLive([],fwData)')};
-  setFw(fw({trail:[[1,0,.1,0],[2,0,.2,0]],scan:{sweeping:false,sweep_id:2,seen_echo:true,front_cm:42.4,points:[[1,1,1],[2,1.01,1.01]]}}));
+  setFw(fw({trail:[[1,0,.1],[2,0,.2]],scan:{sweep_id:2,seen_echo:true,front_cm:42.4,points:[[1,1,1],[2,1.01,1.01]]}}));
   near(run('map.x'),1);near(run('map.th'),.5);assert.equal(run('map.path.length'),3);assert.equal(run('map.walls.size'),1);assert.match(els['map-scan'].textContent,/42 cm/);
-  setFw(fw({trail:[[1,0,.1,0],[2,0,.2,0]]}));assert.equal(run('map.path.length'),3,'khong ve lai diem cu');
-  setFw(fw({trail:[[3,0,.15,1],[4,0,.1,1]],nav:{active:true,state:'avoid_scan',avoid:1}}));assert.equal(run('map.back.length'),1);assert.equal(run('map.back[0].length'),3);assert.equal(run('map.path.length'),0);assert.equal(els['map-status'].textContent,'Gặp vật cản · đang quét');
-  setFw(fw({trail:[[5,0,.05,0]]}));assert.equal(run('map.liveBack'),false);assert.equal(run('map.path.length'),2);
+  setFw(fw({trail:[[1,0,.1],[2,0,.2]]}));assert.equal(run('map.path.length'),3,'khong ve lai diem cu');
+  setFw(fw({trail:[[3,0,.3]]}));assert.equal(run('map.path.length'),4);
   setFw({...fw(),pose:{...fw().pose,epoch:8}});assert.equal(run('map.walls.size'),0,'firmware dat lai ban do');
   setFw(fw({scan:null,pose:{...fw().pose,epoch:8}}));assert.match(els['map-scan'].textContent,/Chưa bật/);
-  setFw(fw({scan:{sweeping:false,sweep_id:0,seen_echo:false,front_cm:null,points:[]},pose:{...fw().pose,epoch:8}}));assert.match(els['map-scan'].textContent,/Chưa nhận tín hiệu/);
-  // Khi xe tu quay ve, trang khong duoc gui lenh joystick lam huy viec quay ve.
-  els.mode.value='live';run('changeMode()');run("state.authToken='t';state.connected=true;state.ready=true;state.session='s';state.returning=true");
-  const sentBefore=requests.length;await run('sendControl()');assert.equal(requests.length,sentBefore,'khong gui control khi dang quay ve');
-  run('disarm()');assert.equal(run('state.returning'),false);run("state.authToken=null;state.connected=null;state.ready=false");
-  els.mode.value='demo';run('changeMode()');
-  console.log('PASS: simulated obstacle placement, removal, avoidance and blocked stop.');
+  setFw(fw({scan:{sweep_id:0,seen_echo:false,front_cm:null,points:[]},pose:{...fw().pose,epoch:8}}));assert.match(els['map-scan'].textContent,/Chưa nhận tín hiệu/);
+  console.log('PASS: simulated obstacle placement and removal.');
   console.log('PASS: map odometry, heading, obstacle projection and filtering, live baseline protection, reset.');
   console.log('PASS: real API telemetry rendering, persistent login/logout flow, joystick commands, lease release without idle control traffic, immediate STOP during pending movement, dead-zone release, session invalidation, automatic control acquisition, STOP/release cancellation and fresh-gesture restart, network-failure stop, demo isolation.');
 })().catch(error=>{console.error(error);process.exitCode=1});

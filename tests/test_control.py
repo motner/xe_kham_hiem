@@ -168,6 +168,83 @@ class RobotTests(unittest.TestCase):
         self.robot.fault='motor_stop_error'
         with self.assertRaises(ValueError):self.robot.arm()
 
+    def test_inner_side_below_minimum_stops_outer_side_keeps_running(self):
+        self.robot.command(self.session,0,.5,-.4,100)  # Trai 10, phai 90 RPM.
+        self.assertEqual(self.robot.left,0)
+        self.assertEqual(self.robot.right,90)
+        for wheel in self.wheels:
+            self.assertEqual(wheel.requested,0 if wheel.name.endswith('_left') else 90)
+
+    def test_minimum_applies_in_reverse_and_keeps_exact_threshold(self):
+        self.robot.command(self.session,0,-.2,0,100)
+        self.assertEqual((self.robot.left,self.robot.right),(0,0))
+        self.assertEqual(self.robot.reason,'idle')
+        self.robot.command(self.session,1,-config.MIN_WHEEL_RPM/100,0,100)
+        self.assertEqual(self.robot.left,-config.MIN_WHEEL_RPM)
+
+    def stalled_wheel(self):
+        wheel=make_wheel()
+        wheel.encoder.no_pulse_seconds=10
+        wheel.set_target_rpm(60)
+        return wheel
+
+    def run_wheel(self,wheel,seconds):
+        for _ in range(round(seconds/.05)):
+            wheel.set_target_rpm(60)  # Lenh joystick van toi trong luc banh loi.
+            wheel.update(.05)
+
+    def test_stalled_wheel_rests_then_retries_while_joystick_held(self):
+        wheel=self.stalled_wheel()
+        self.run_wheel(wheel,config.STALL_TIMEOUT_MS/1000-.1)
+        self.assertIsNone(wheel.fault)
+        while not wheel.fault:self.run_wheel(wheel,.05)
+        self.assertEqual(wheel.motor.output,0)
+        self.run_wheel(wheel,config.STALL_RETRY_MS/1000-.2)
+        self.assertIsNotNone(wheel.fault)
+        self.assertEqual(wheel.motor.output,0)
+        self.run_wheel(wheel,.4)
+        self.assertIsNone(wheel.fault)
+        self.assertGreater(wheel.motor.output,0)
+
+    def test_stuck_wheel_stops_retrying_until_new_arm(self):
+        wheel=self.stalled_wheel()
+        cycle=(config.STALL_TIMEOUT_MS+config.STALL_RETRY_MS)/1000+.2
+        self.run_wheel(wheel,cycle*(config.STALL_MAX_RETRIES+2))
+        self.assertIsNotNone(wheel.fault)
+        self.assertEqual(wheel.retries,config.STALL_MAX_RETRIES)
+        self.run_wheel(wheel,cycle)
+        self.assertIsNotNone(wheel.fault)
+        self.assertEqual(wheel.motor.output,0)
+        wheel.clear_stall()
+        self.assertEqual(wheel.retries,0)
+
+    def test_pulses_after_retry_give_the_wheel_all_its_retries_back(self):
+        wheel=self.stalled_wheel()
+        self.run_wheel(wheel,(config.STALL_TIMEOUT_MS+config.STALL_RETRY_MS)/1000+.2)
+        self.assertEqual(wheel.retries,1)
+        wheel.encoder.no_pulse_seconds=0
+        wheel.encoder.rpm=60
+        wheel.encoder.sample=lambda dt:True
+        self.run_wheel(wheel,.2)
+        self.assertEqual(wheel.retries,0)
+
+    def test_other_wheel_faults_do_not_retry(self):
+        wheel=make_wheel()
+        wheel.fault='bad_encoder'
+        self.run_wheel(wheel,config.STALL_RETRY_MS/1000+1)
+        self.assertEqual(wheel.fault,'bad_encoder')
+
+    def test_map_does_not_jump_when_wheel_faults_and_recovers(self):
+        front_left=next(w for w in self.wheels if w.name=='front_left')
+        front_left.position_pulses=200  # Hai banh trai lech nhau nhu sau mot luc chay.
+        self.robot._update_odometry()
+        before=self.robot.odometry.length
+        front_left.fault='encoder_or_stall:front_left'
+        self.robot._update_odometry()
+        front_left.fault=None
+        self.robot._update_odometry()
+        self.assertEqual(self.robot.odometry.length,before)
+
     def test_low_target_wheel_gets_breakaway_duty_before_false_stall(self):
         wheel=make_wheel()
         wheel.set_target_rpm(8)

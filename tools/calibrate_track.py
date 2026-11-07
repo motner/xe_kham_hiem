@@ -11,7 +11,7 @@ from main import build_robot
 from odometry import wrap_angle
 
 TARGET_DEG = 720
-RPM = config.RETURN_TURN_RPM
+RPM = 110
 
 
 def main():

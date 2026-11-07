@@ -53,7 +53,7 @@ header .eyebrow{color:#c5e68a;letter-spacing:2.5px}header h1{color:#fbf6e6;lette
 .joystick:before,.joystick:after{background:#8f7c5066}.joystick-label{color:#4d4326;font-weight:600}.joystick.active{box-shadow:0 0 0 5px #5f8f3f33,inset 0 3px 12px #3b2f1533}
 .joystick-knob{border-color:#274f2e;background:radial-gradient(circle at 38% 28%,#c3e08e 0,#6f9f4c 45%,#3f7038 78%,#2c5629 100%);box-shadow:0 8px 12px #1b220f66,inset 0 2px 3px #e7f5c6,inset 0 -4px 7px #1f3d1c88}.joystick-grip{border-color:#2c5629;background:radial-gradient(#23451f90 1px,transparent 1.5px);background-size:5px 5px}
 .joystick-readout strong{color:#2f6f43}.motor-command{background:#f1e8cd}.stop{background:#b23a22;color:#fff8ea;border-color:#8c2f1b}.stop:hover{background:#9b311c}.stop span{color:#fbe6d4}
-.map-canvas.placing{cursor:crosshair}.map-buttons{display:flex;flex-wrap:wrap;gap:8px}.map-home{background:#2f6f43;border-color:#27603a;color:#fff8ea;font-weight:650}.map-home:hover:not(:disabled){background:#27603a}.map-canvas{background:#f3ead2;border-color:#cdbd90;box-shadow:inset 0 0 26px #a48f5a40}
+.map-canvas.placing{cursor:crosshair}.map-buttons{display:flex;flex-wrap:wrap;gap:8px}.map-home:hover:not(:disabled){background:#27603a}.map-canvas{background:#f3ead2;border-color:#cdbd90;box-shadow:inset 0 0 26px #a48f5a40}
 .map-legend i.map-key{width:18px;height:0;background:none;border-top:3px dashed #b4541c;border-radius:0}.map-legend i.map-key.box{width:9px;height:9px;border:1px solid #4f3419;background:#7a5230}.map-legend i.map-key.back{border-top:3px solid #2f6f8f}.map-legend i.map-key.start{width:auto;border:0;font:700 15px system-ui;line-height:0;color:#8c2f1b}.map-legend i.map-key.wall{width:8px;height:8px;border:0;border-radius:50%;background:#2f5d3a}.map-legend i.map-key.car{width:0;height:0;border:5px solid transparent;border-bottom:9px solid #1d2a1c;border-top:0}
 #chart-rpm{stroke:#2f6f43}#chart-area{fill:#dfeec4}.chart g[stroke]{stroke:#e6dbbc}.legend i{background:#2f6f43}
 .wheel{background:#f4ecd4;border-color:var(--line)}.bar{background:#e3d8b9}.bar div{background:#5f8f3f}.wheel-dot{background:#5f8f3f}
@@ -90,7 +90,7 @@ header .eyebrow{color:#c5e68a;letter-spacing:2.5px}header h1{color:#fbf6e6;lette
 <div class="legend map-legend"><span><i class="map-key"></i>Đường đi</span><span><i class="map-key back"></i>Đường về</span><span><i class="map-key start">×</i>Xuất phát</span><span><i class="map-key wall"></i>Điểm quét được</span><span id="map-box-key"><i class="map-key box"></i>Vật cản đặt tay</span><span><i class="map-key car"></i>Xe</span></div>
 <canvas id="map" class="map-canvas" role="img" aria-label="Bản đồ đường đi của xe và các vật cản"></canvas>
 <div class="map-stats"><span>X<b><span id="map-x">0,00</span> m</b></span><span>Y<b><span id="map-y">0,00</span> m</b></span><span>Hướng<b><span id="map-heading">0</span>°</b></span><span>Đã đi<b><span id="map-length">0,00</span> m</b></span><span>Vật cản<b id="map-walls">0</b></span></div>
-<div class="map-actions"><label for="map-track">Khoảng cách hai bên bánh (cm)<input id="map-track" type="number" min="5" max="60" step="0.5" value="16"></label><span class="map-buttons"><button id="map-return" class="plain-button map-home" type="button" disabled>↩ Quay về</button><button id="map-clear-boxes" class="plain-button" type="button">Xóa vật cản</button><button id="map-reset" class="plain-button" type="button">Đặt lại bản đồ</button></span></div>
+<div class="map-actions"><label for="map-track">Khoảng cách hai bên bánh (cm)<input id="map-track" type="number" min="5" max="60" step="0.5" value="16"></label><span class="map-buttons"><button id="map-clear-boxes" class="plain-button" type="button">Xóa vật cản</button><button id="map-reset" class="plain-button" type="button">Đặt lại bản đồ</button></span></div>
 <p id="map-scan" class="hint" role="status"></p><p id="map-note" class="hint"></p>
 </div></section>
 <section class="panel" aria-labelledby="camera-title">
@@ -115,116 +115,21 @@ $('wheels').innerHTML = wheelNames.map((name,i)=>`<article class="wheel"><div cl
 const state = {mode:'live',direction:'stop',x:0,y:0,left:0,right:0,pointerId:null,ready:false,session:null,sequence:0,maxRpm:120,rpm:[0,0,0,0],pulses:[0,0,0,0],distance:0,history:[],lastTick:performance.now(),lastPlot:0,eventCount:0,connected:null,epoch:0,authToken:null,username:'',diameter:60,ppr:20,bootId:null};
 let powerWarningKind=null,bootChecking=false;
 // Ban do: goc 0 la huong xe luc dat lai, duong la quay phai. Don vi met va radian.
-const map={x:0,y:0,th:0,path:[[0,0]],old:[],back:[],route:[[0,0]],ret:false,walls:new Map(),len:0,last:null,track:.16,dirty:true,epoch:null,trailSeq:0,scanSeq:0,liveBack:false,boxes:[],nav:null,beam:null,view:null};
+const map={x:0,y:0,th:0,path:[[0,0]],walls:new Map(),len:0,last:null,track:.16,dirty:true,epoch:null,trailSeq:0,scanSeq:0,boxes:[],beam:null,view:null};
 const demoWalls=[[-2,-1,2,-1],[2,-1,2,4],[2,4,-2,4],[-2,4,-2,-1],[.6,1.5,1.2,1.5],[1.2,1.5,1.2,2.1],[1.2,2.1,.6,2.1],[.6,2.1,.6,1.5]];
 let demoScanAngle=-90,demoScanStep=15;
 const vn=(value,digits)=>value.toFixed(digits).replace(/^-(0[.]?0*)$/,'$1').replace('.',',');
-function mapReset(){map.x=map.y=map.th=map.len=0;map.path=[[0,0]];map.old=[];map.back=[];map.route=[[0,0]];map.ret=false;map.liveBack=false;map.boxes=[];map.nav=null;map.beam=null;map.walls.clear();map.last=null;map.dirty=true;}
+function mapReset(){map.x=map.y=map.th=map.len=0;map.path=[[0,0]];map.boxes=[];map.beam=null;map.walls.clear();map.last=null;map.dirty=true;}
 // dL, dR: quang duong moi ben (m). Dung huong giua doan de bot sai so khi vua di vua re.
 function mapStep(dL,dR){
   const d=(dL+dR)/2,dth=(dL-dR)/map.track,mid=map.th+dth/2;
   map.x+=d*Math.sin(mid);map.y+=d*Math.cos(mid);map.len+=Math.abs(d);
   map.th=Math.atan2(Math.sin(map.th+dth),Math.cos(map.th+dth));
-  const line=map.ret?map.back.at(-1):map.path,end=line.at(-1);
+  const line=map.path,end=line.at(-1);
   if(Math.hypot(map.x-end[0],map.y-end[1])>=.02){
     line.push([map.x,map.y]);if(line.length>4000)line.shift();
-    if(!map.ret){map.route.push([map.x,map.y]);if(map.route.length>4000)map.route=map.route.filter((_,i)=>i%2===0||i===map.route.length-1);}
   }
   map.dirty=true;
-}
-// Quay ve (chi mo phong): di nguoc lai cac diem da luu trong map.route, diem [0] la xuat phat.
-function startReturn(){
-  if(state.mode!=='demo'||map.ret||map.route.length<2)return;
-  stop();map.old.push(map.path);map.back.push([[map.x,map.y]]);map.path=[];map.ret=true;map.dirty=true;
-  map.nav={state:'turn',next:'turn',timer:0,heading:0,mark:0,side:0,avoid:0,sweep:[],index:0};
-  log('Bắt đầu quay về điểm xuất phát · mô phỏng');
-}
-function endReturn(result){
-  if(!map.ret)return;
-  map.ret=false;map.nav=null;map.beam=null;map.path=[[map.x,map.y]];map.dirty=true;
-  state.left=0;state.right=0;$('command-left').textContent='0';$('command-right').textContent='0';
-  if(result===true)map.route=[[map.x,map.y]];
-  const text=result===true?'Đã về điểm xuất phát · mô phỏng':result==='blocked'?'Không tìm được đường về: xe đã dừng · mô phỏng':'Đã hủy quay về';
-  $('drive-status').textContent=text;log(text);setMapStatus('Mô phỏng',true);
-}
-// Cung trinh tu voi firmware/navigator.py: xoay -> di -> gap vat can thi dung, quet, chon huong, di vong.
-const wrapAngle=a=>Math.atan2(Math.sin(a),Math.cos(a));
-function navSettle(nav,next){nav.state='settle';nav.next=next;nav.timer=.4;return [0,0];}
-function navTurn(nav,error,done){
-  if(Math.abs(error)<.26)return navSettle(nav,done);
-  const turn=Math.sign(error)*Math.max(15,Math.min(60,Math.abs(error)*60));
-  return [turn,-turn];
-}
-function navHold(error,base=80){const steer=Math.max(-15,Math.min(15,error*25));return [base+steer,base-steer];}
-function navAvoid(nav,front){
-  if(++nav.avoid>6)return null;
-  const ox=map.x+(front+.08)*Math.sin(map.th),oy=map.y+(front+.08)*Math.cos(map.th);
-  // Bo cac diem duong cu qua sat vat can, luon giu diem xuat phat.
-  map.route=[map.route[0],...map.route.slice(1).filter(p=>Math.hypot(p[0]-ox,p[1]-oy)>.4)];
-  return navSettle(nav,'avoid_scan');
-}
-function navGoal(){
-  const r=map.route,far=p=>Math.hypot(p[0]-map.x,p[1]-map.y);
-  while(r.length>1&&far(r.at(-1))<.3)r.pop();
-  return r.at(-1);
-}
-function navOpening(nav,goalError){
-  let best=null,bestScore=-Infinity;
-  for(const [angle,cm] of nav.sweep){
-    if(angle===0)continue;
-    const room=cm===null?150:cm;
-    if(room<70)continue;
-    let score=room+40*Math.cos(angle*Math.PI/180-goalError);
-    if(nav.side&&(angle>0)===(nav.side>0))score+=60;
-    if(score>bestScore){best=angle;bestScore=score;}
-  }
-  return best;
-}
-function mapReturnStep(dt=.2){
-  const nav=map.nav,goal=navGoal(),dist=Math.hypot(goal[0]-map.x,goal[1]-map.y);
-  const goalError=wrapAngle(Math.atan2(goal[0]-map.x,goal[1]-map.y)-map.th);
-  let out=[0,0];
-  const home=map.route.length===1&&dist<.06;
-  if(nav.state==='settle'){
-    nav.timer-=dt;
-    if(nav.timer<=0){
-      nav.state=nav.next;
-      if(nav.state==='avoid_scan'){nav.sweep=[];nav.index=0;nav.timer=0;}
-      if(nav.state==='avoid_drive')nav.mark=map.len;
-    }
-  }else if(nav.state==='turn'){
-    if(home){endReturn(true);return;}
-    out=navTurn(nav,goalError,'drive');
-  }else if(nav.state==='drive'||nav.state==='avoid_drive'){
-    if(nav.state==='drive'&&home){endReturn(true);return;}
-    const front=demoPing(0);
-    if(front!==null&&front<.45&&(nav.state==='avoid_drive'||front<dist)){
-      const next=navAvoid(nav,front);
-      if(!next){endReturn('blocked');return;}
-      out=next;
-    }else if(nav.state==='avoid_drive'){
-      if(map.len-nav.mark>=.5)out=navSettle(nav,'turn');
-      else out=navHold(wrapAngle(nav.heading-map.th));
-    }else if(Math.abs(goalError)>.96)out=navSettle(nav,'turn');
-    else out=navHold(goalError,map.route.length===1?Math.max(25,Math.min(80,dist*250)):80);
-  }else if(nav.state==='avoid_scan'){
-    nav.timer-=dt;
-    if(nav.timer<=0&&nav.index<5){
-      const angle=[-60,-30,0,30,60][nav.index++],hit=demoPing(angle);
-      nav.sweep.push([angle,hit===null?null:hit*100]);nav.timer=.2;
-    }else if(nav.timer<=0){
-      const angle=navOpening(nav,goalError);
-      if(angle===null){
-        if(++nav.avoid>6){endReturn('blocked');return;}
-        nav.side=nav.side||1;nav.heading=wrapAngle(map.th+Math.PI/2*nav.side);nav.state='avoid_rotate';
-      }else{nav.side=angle>0?1:-1;nav.heading=wrapAngle(map.th+angle*Math.PI/180);nav.state='avoid_turn';}
-    }
-  }else if(nav.state==='avoid_turn')out=navTurn(nav,wrapAngle(nav.heading-map.th),'avoid_drive');
-  else if(nav.state==='avoid_rotate')out=navTurn(nav,wrapAngle(nav.heading-map.th),'avoid_scan');
-  state.left=out[0];state.right=out[1];
-  $('command-left').textContent=out[0].toFixed(0);$('command-right').textContent=out[1].toFixed(0);
-  const text=navText[nav.state]||'Đang quay về';
-  $('drive-status').textContent=text+(nav.avoid?' · đã né '+nav.avoid+' lần':'')+' · mô phỏng';setMapStatus(text,true);
 }
 // Mot diem do: goc so voi dau xe (do, duong la ben phai) va khoang cach (cm).
 function mapScan(angleDeg,distanceCm){
@@ -264,7 +169,6 @@ function demoPing(angleDeg){
   return hit;
 }
 function mapDemoScan(){
-  if(map.ret)return;
   demoPing(demoScanAngle);
   demoScanAngle+=demoScanStep;if(Math.abs(demoScanAngle)>=90)demoScanStep=-demoScanStep;
 }
@@ -274,25 +178,19 @@ function mapAddBox(x,y){
   if(Math.max(Math.abs(x-map.x),Math.abs(y-map.y))<.3){log('Vị trí quá sát xe, hãy đặt xa hơn');return false;}
   map.boxes.push([x,y]);map.dirty=true;log('Đã đặt vật cản');return true;
 }
-const navText={turn:'Đang xoay về hướng cũ',drive:'Đang đi về',settle:'Đang chờ xe dừng hẳn',avoid_scan:'Gặp vật cản · đang quét',avoid_turn:'Đang xoay tránh vật cản',avoid_drive:'Đang đi vòng qua vật cản',avoid_rotate:'Phía trước bị chắn · đang xoay tìm đường'};
-const navResult={return_home:'Đã về điểm xuất phát',return_blocked:'Không tìm được đường về: xe đã dừng',return_timeout:'Quá thời gian quay về: xe đã dừng',return_wheel_fault:'Bánh báo lỗi khi quay về: xe đã dừng'};
 function mapFromFirmware(data){
   const p=data.pose;
   if(map.epoch!==p.epoch){if(map.epoch!==null)mapReset();map.epoch=p.epoch;}
   map.x=p.x;map.y=p.y;map.th=p.th;map.len=p.length_m;
   // Firmware dem diem bang seq: chi lay diem moi, moi diem chi ve mot lan.
-  for(const [seq,x,y,kind] of data.trail||[]){
+  for(const [seq,x,y] of data.trail||[]){
     if(seq<=map.trailSeq)continue;
     map.trailSeq=seq;
-    if(kind===1&&!map.liveBack){map.liveBack=true;map.old.push(map.path);map.path=[];map.back.push([[x,y]]);}
-    else if(kind===0&&map.liveBack){map.liveBack=false;map.path=[[x,y]];}
-    const line=map.liveBack?map.back.at(-1):map.path;line.push([x,y]);if(line.length>4000)line.shift();
+    map.path.push([x,y]);if(map.path.length>4000)map.path.shift();
   }
   for(const [seq,x,y] of data.scan?.points||[]){if(seq>map.scanSeq){map.scanSeq=seq;mapWall(x,y);}}
   map.dirty=true;
-  const nav=data.nav||{};
-  setMapStatus(nav.active?(navText[nav.state]||'Đang quay về'):'Ước lượng từ encoder',true);
-  if(nav.active)$('drive-status').textContent=(navText[nav.state]||'Đang quay về')+(nav.avoid?' · đã né '+nav.avoid+' lần':'');
+  setMapStatus('Ước lượng từ encoder',true);
   const scan=data.scan;
   $('map-scan').textContent=!scan?'Chưa bật HC-SR04 trong config.py.':!scan.seen_echo?'Chưa nhận tín hiệu HC-SR04: kiểm tra dây nếu đang có vật trong tầm 1,5 m.':(scan.front_cm===null?'Phía trước: trống trong tầm đo':'Phía trước: '+Math.round(scan.front_cm)+' cm')+' · đã quét '+scan.sweep_id+' lần';
 }
@@ -310,9 +208,8 @@ function drawMap(){
   map.dirty=false;
   $('map-x').textContent=vn(map.x,2);$('map-y').textContent=vn(map.y,2);$('map-heading').textContent=Math.round(map.th*180/Math.PI);
   $('map-length').textContent=vn(map.len,2);$('map-walls').textContent=map.walls.size;
-  const home=$('map-return'),live=state.mode==='live',going=map.ret||state.returning;
-  home.disabled=live?!(state.authToken&&state.connected&&(state.ready||going)):!map.ret&&map.route.length<2;
-  home.textContent=going?'Hủy quay về':'↩ Quay về';$('map-track').disabled=live;
+  const live=state.mode==='live';
+  $('map-track').disabled=live;
   $('map-clear-boxes').hidden=live;$('map-clear-boxes').disabled=!map.boxes.length;$('map-box-key').hidden=live;$('map').classList?.toggle('placing',!live);
   const canvas=$('map'),g=canvas.getContext&&canvas.getContext('2d');if(!g)return;
   const w=canvas.clientWidth,h=canvas.clientHeight;if(!w||!h)return;
@@ -320,7 +217,7 @@ function drawMap(){
   if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);}
   g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,w,h);
   let x0=map.x,x1=map.x,y0=map.y,y1=map.y;
-  for(const list of [map.path,...map.old,...map.back,map.boxes,map.walls.values()])for(const [x,y] of list){x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y);}
+  for(const list of [map.path,map.boxes,map.walls.values()])for(const [x,y] of list){x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y);}
   const scale=Math.min((w-36)/Math.max(2,x1-x0+.4),(h-36)/Math.max(2,y1-y0+.4));
   const cx=(x0+x1)/2,cy=(y0+y1)/2,X=x=>w/2+(x-cx)*scale,Y=y=>h/2-(y-cy)*scale;
   map.view={cx,cy,scale,w,h};
@@ -331,8 +228,7 @@ function drawMap(){
   g.stroke();
   g.strokeStyle='#b4541c';g.lineWidth=3;g.lineJoin=g.lineCap='round';g.setLineDash([8,7]);g.beginPath();
   const trace=line=>line.forEach(([x,y],i)=>i?g.lineTo(X(x),Y(y)):g.moveTo(X(x),Y(y)));
-  map.old.forEach(trace);trace(map.path);if(map.path.length)g.lineTo(X(map.x),Y(map.y));g.stroke();g.setLineDash([]);
-  g.strokeStyle='#2f6f8f';g.beginPath();map.back.forEach(trace);if(map.ret)g.lineTo(X(map.x),Y(map.y));g.stroke();
+  trace(map.path);if(map.path.length)g.lineTo(X(map.x),Y(map.y));g.stroke();g.setLineDash([]);
   if(map.beam){const b=map.beam;g.strokeStyle=b.hit?'#c07a1e':'#c9b88a';g.lineWidth=2;g.beginPath();g.moveTo(X(b.x),Y(b.y));g.lineTo(X(b.x+b.len*Math.sin(b.a)),Y(b.y+b.len*Math.cos(b.a)));g.stroke();}
   g.fillStyle='#7a5230';g.strokeStyle='#4f3419';g.lineWidth=2;for(const [x,y] of map.boxes){const k=.3*scale;g.fillRect(X(x)-k/2,Y(y)-k/2,k,k);g.strokeRect(X(x)-k/2,Y(y)-k/2,k,k);}
   g.fillStyle='#2f5d3a';for(const [x,y] of map.walls.values()){g.beginPath();g.arc(X(x),Y(y),3,0,7);g.fill();}
@@ -341,40 +237,18 @@ function drawMap(){
   g.strokeStyle='#3b3220';g.fillStyle='#3b3220';g.lineWidth=2;g.beginPath();g.moveTo(12,h-12);g.lineTo(12+step*scale,h-12);g.stroke();
   g.font='11px system-ui,sans-serif';g.fillText(String(step).replace('.',',')+' m',12,h-18);g.textAlign='right';g.fillText('↑ hướng xuất phát',w-10,18);g.textAlign='left';
 }
-function mapNote(){$('map-scan').textContent=state.mode==='demo'?'':'Chờ dữ liệu từ xe…';$('map-note').textContent=state.mode==='demo'?'Dữ liệu mô phỏng trong một căn phòng ảo, không phải số đo thực. Kéo joystick để đi rồi bấm Quay về. Trong lúc xe đang về, bấm lên bản đồ để đặt vật cản trên đường, xe sẽ tự né; bấm lại vào vật cản để gỡ. Mô phỏng này không có trượt bánh nên xe thật sẽ không về chính xác như vậy.':'Vị trí tính từ encoder nên lệch dần khi bánh trượt: xe chỉ về gần điểm xuất phát. Khoảng cách hai bên bánh chỉnh bằng TRACK_WIDTH_M trong config.py. Khi tự quay về, chuyển tab hoặc thoát trang cũng sẽ dừng xe. Đặt lại bản đồ khi đặt xe vào vị trí xuất phát.';}
-async function liveReturn(){
-  if(state.returning){
-    const session=state.session;state.returning=false;
-    if(session)stop();else api('/api/stop',{},800).catch(()=>{});
-    log('Đã hủy quay về');return;
-  }
-  stop();const token=state.authToken;
-  try{
-    await releaseControlTask;
-    const data=await api('/api/return',{},1500,token);
-    if(token!==state.authToken)return;
-    state.session=data.session;state.sequence=0;state.returning=true;map.dirty=true;controlAvailability();
-    log('Xe bắt đầu tự quay về. Bấm DỪNG để hủy.');
-  }catch(e){
-    const reasons={no_route:'Chưa có đường đi để quay về',controller_busy:'Người khác đang điều khiển xe',wheel_fault:'Một bánh đang báo lỗi'};
-    log('Không quay về được: '+(reasons[e.message]||e.message));
-  }
-}
+function mapNote(){$('map-scan').textContent=state.mode==='demo'?'':'Chờ dữ liệu từ xe…';$('map-note').textContent=state.mode==='demo'?'Dữ liệu mô phỏng trong một căn phòng ảo, không phải số đo thực. Kéo joystick để đi. Bấm lên bản đồ để đặt vật cản cho cảm biến quét, bấm lại để gỡ. Mô phỏng này không có trượt bánh nên đường đi thật sẽ lệch hơn.':'Vị trí tính từ encoder nên lệch dần khi bánh trượt. Khoảng cách hai bên bánh chỉnh bằng TRACK_WIDTH_M trong config.py. Khi tự quay về, chuyển tab hoặc thoát trang cũng sẽ dừng xe. Đặt lại bản đồ khi đặt xe vào vị trí xuất phát.';}
 $('map-clear-boxes').addEventListener('click',()=>{map.boxes=[];map.dirty=true;log('Đã xóa vật cản');});
 $('map').addEventListener('click',e=>{
   if(state.mode!=='demo'||!map.view)return;
   const r=$('map').getBoundingClientRect(),v=map.view;
   mapAddBox(v.cx+(e.clientX-r.left-v.w/2)/v.scale,v.cy-(e.clientY-r.top-v.h/2)/v.scale);
 });
-$('map-return').addEventListener('click',()=>{
-  if(state.mode==='live'){liveReturn();return;}
-  if(map.ret)endReturn(false);else startReturn();
-});
 $('map-reset').addEventListener('click',async()=>{
   if(state.mode==='live'){
     try{await api('/api/map_reset',{},800);}catch(e){log(e.message==='vehicle_moving'?'Dừng xe trước khi đặt lại bản đồ':'Không đặt lại được bản đồ: '+e.message);return;}
   }
-  endReturn(false);const last=map.last;mapReset();map.last=last;log('Đặt lại bản đồ');
+  const last=map.last;mapReset();map.last=last;log('Đặt lại bản đồ');
 });
 $('map-track').addEventListener('change',()=>{const n=Number($('map-track').value);if(Number.isFinite(n)&&n>=5&&n<=60){map.track=n/100;try{localStorage.setItem('esp32-track-cm',String(n));}catch{}}else $('map-track').value=map.track*100;});
 try{const saved=Number(localStorage.getItem('esp32-track-cm'));if(saved>=5&&saved<=60){map.track=saved/100;$('map-track').value=saved;}}catch{}
@@ -438,7 +312,7 @@ function clearLogin(message=''){
   loginGeneration++;armGeneration++;state.epoch++;
   state.authToken=null;state.username='';state.session=null;state.sequence=0;
   state.ready=false;state.connected=null;controlPending=false;map.last=null;
-  map.trailSeq=0;map.scanSeq=0;map.epoch=null;state.returning=false;
+  map.trailSeq=0;map.scanSeq=0;map.epoch=null;
   saveLogin();stop();stopCamera();clearReadings();controlAvailability();loginView();
   $('login-password').value='';$('login-message').textContent=message;
 }
@@ -494,8 +368,6 @@ $('camera-stop').addEventListener('click',()=>stopCamera());
 window.addEventListener('pagehide',()=>stopCamera());
 function updateJoystick(x,y){
   if(!canControl())return;
-  endReturn(false);
-  if(state.returning&&Math.hypot(x,y)>.1)state.returning=false;
   const magnitude=Math.hypot(x,y),scale=Math.max(1,magnitude);
   x/=scale;y/=scale;
   const radius=Math.min(1,magnitude),deadzone=.10;
@@ -525,7 +397,6 @@ function updateJoystick(x,y){
   }
 }
 function stop(){
-  endReturn(false);
   const moving=state.direction!=='stop',pointer=state.pointerId;
   if(state.mode==='live')disarm();
   else if(!state.session)armGeneration++;
@@ -595,7 +466,7 @@ $('mode').addEventListener('change',changeMode);
 function resetSimulation(){stop();state.rpm=[0,0,0,0];state.pulses=[0,0,0,0];state.distance=0;state.history=[];drawChart();mapReset();log('Đặt lại dữ liệu mô phỏng');}
 $('reset').addEventListener('click',resetSimulation);
 for(const [id,min,max] of [['diameter',10,500],['ppr',1,100000]])$(id).addEventListener('change',()=>{const n=Number($(id).value);if(!Number.isFinite(n)||n<min||n>max){$(id).value=state[id];return;}state[id]=Math.round(n);$(id).value=state[id];resetSimulation();});
-function tick(){const now=performance.now();const dt=Math.min((now-state.lastTick)/1000,.5);state.lastTick=now;if(map.dirty)drawMap();if(state.mode!=='demo')return;if(map.ret)mapReturnStep(dt);const goal=(Math.abs(state.left)+Math.abs(state.right))/2;state.rpm=state.rpm.map((v,i)=>{const target=(i%2===0?state.left:state.right)*(1+[0,-.025,.015,-.01][i]);const next=v+(target-v)*(1-Math.exp(-dt*4));return Math.abs(next)<.05?0:next;});state.rpm.forEach((v,i)=>state.pulses[i]+=Math.abs(v)/60*state.ppr*dt);{const k=Math.PI*state.diameter/1000/60*dt;mapStep((state.rpm[0]+state.rpm[2])/2*k,(state.rpm[1]+state.rpm[3])/2*k);mapDemoScan();}const avg=state.rpm.reduce((a,b)=>a+Math.abs(b),0)/4;const velocity=avg/60*Math.PI*state.diameter/1000;state.distance+=velocity*dt;$('rpm').textContent=avg.toFixed(1);$('velocity').textContent=velocity.toFixed(2);$('pulses').textContent=state.pulses.reduce((a,b)=>a+Math.floor(b),0).toLocaleString('vi-VN');$('distance').textContent=state.distance.toFixed(2);state.rpm.forEach((v,i)=>{$('wheel-rpm-'+i).textContent=Math.abs(v).toFixed(1);$('wheel-pulses-'+i).textContent=Math.floor(state.pulses[i]).toLocaleString('vi-VN');$('wheel-bar-'+i).style.width=Math.min(100,Math.abs(v)/2)+'%';});if(now-state.lastPlot>=450){state.lastPlot=now;state.history.push({t:now,rpm:avg,target:goal});state.history=state.history.filter(p=>now-p.t<=30000);drawChart();}}
+function tick(){const now=performance.now();const dt=Math.min((now-state.lastTick)/1000,.5);state.lastTick=now;if(map.dirty)drawMap();if(state.mode!=='demo')return;const goal=(Math.abs(state.left)+Math.abs(state.right))/2;state.rpm=state.rpm.map((v,i)=>{const target=(i%2===0?state.left:state.right)*(1+[0,-.025,.015,-.01][i]);const next=v+(target-v)*(1-Math.exp(-dt*4));return Math.abs(next)<.05?0:next;});state.rpm.forEach((v,i)=>state.pulses[i]+=Math.abs(v)/60*state.ppr*dt);{const k=Math.PI*state.diameter/1000/60*dt;mapStep((state.rpm[0]+state.rpm[2])/2*k,(state.rpm[1]+state.rpm[3])/2*k);mapDemoScan();}const avg=state.rpm.reduce((a,b)=>a+Math.abs(b),0)/4;const velocity=avg/60*Math.PI*state.diameter/1000;state.distance+=velocity*dt;$('rpm').textContent=avg.toFixed(1);$('velocity').textContent=velocity.toFixed(2);$('pulses').textContent=state.pulses.reduce((a,b)=>a+Math.floor(b),0).toLocaleString('vi-VN');$('distance').textContent=state.distance.toFixed(2);state.rpm.forEach((v,i)=>{$('wheel-rpm-'+i).textContent=Math.abs(v).toFixed(1);$('wheel-pulses-'+i).textContent=Math.floor(state.pulses[i]).toLocaleString('vi-VN');$('wheel-bar-'+i).style.width=Math.min(100,Math.abs(v)/2)+'%';});if(now-state.lastPlot>=450){state.lastPlot=now;state.history.push({t:now,rpm:avg,target:goal});state.history=state.history.filter(p=>now-p.t<=30000);drawChart();}}
 let polling=false,controlBusy=false,controlPending=false,armGeneration=0;
 // Wi-Fi mat vai % goi; mat 1 goi khi mo ket noi la TCP cho khoang 1 giay moi gui lai.
 // Firmware van tu dung xe sau COMMAND_TIMEOUT_MS neu khong con nhan duoc lenh.
@@ -632,7 +503,7 @@ async function api(path,body,timeout=600,token=state.authToken){
   return data;
 }
 function disarm(){
-  armGeneration++;state.returning=false;
+  armGeneration++;
   const session=state.session;state.session=null;state.sequence=0;controlPending=false;
   if(session){releaseControlTask=api('/api/stop',{session},600).catch(()=>{});log('Dừng và trả quyền điều khiển xe');}
   controlAvailability();
@@ -649,7 +520,7 @@ async function acquireControl(){
   state.session=data.session;state.sequence=0;controlAvailability();return true;
 }
 async function sendControl(){
-  if(state.mode!=='live'||!canControl()||state.returning)return;
+  if(state.mode!=='live'||!canControl())return;
   if(!state.session&&state.direction==='stop')return;
   if(controlBusy){controlPending=true;return;}
   controlBusy=true;controlPending=false;
@@ -707,13 +578,12 @@ async function poll(){
     statusFailures=0;
     if(!state.connected)log('Đã kết nối web server ESP32');state.connected=true;state.ready=!!data.motor_ready;
     state.maxRpm=data.max_rpm||120;
-    if(state.session&&(!data.armed||!state.ready)){const said=navResult[data.reason];disarm();stop();log(said||'Thiết bị dừng: '+(data.fault||data.reason));if(said)$('drive-status').textContent=said;}
-    state.returning=!!data.nav?.active;
+    if(state.session&&(!data.armed||!state.ready)){disarm();stop();log('Thiết bị dừng: '+(data.fault||data.reason));}
     $('connection').textContent='● ESP32 trực tuyến';$('connection').className='badge';
     const wheelFaults=Array.isArray(data.wheel_faults)?data.wheel_faults:[];
     const isolatedStallTest=data.stop_all_on_encoder_stall===false;
     $('notice-title').textContent=data.fault?'Xe đã dừng do lỗi':state.ready?(isolatedStallTest?'Chế độ thử: dừng riêng bánh lỗi':'PID sẵn sàng'):'Phần cứng chưa được bật';
-    $('notice-text').textContent=data.fault?data.fault+' — kiểm tra xe và khởi động lại sau khi sửa lỗi.':state.ready?(wheelFaults.length?'Bánh đã dừng: '+wheelFaults.join(', ')+'. Các bánh còn lại vẫn nhận lệnh; khởi động lại sau khi sửa lỗi.':isolatedStallTest?'Đang thử tạm: lỗi encoder/stall chỉ dừng bánh bị lỗi. Kê bốn bánh khỏi đất; thả joystick hoặc nhấn DỪNG để dừng xe.':'Đã đăng nhập. Kéo joystick để chạy, thả tay để dừng. Sau nút DỪNG, kéo lại joystick để chạy tiếp.'):'Điền chân GPIO, thông số encoder, PID và bật HARDWARE_ENABLED trong config.py. Có thể chọn mô phỏng để thử giao diện.';
+    $('notice-text').textContent=data.fault?data.fault+' — kiểm tra xe và khởi động lại sau khi sửa lỗi.':state.ready?(wheelFaults.length?'Bánh đã dừng: '+wheelFaults.join(', ')+'. Bánh đang nghỉ rồi tự thử lại; nếu vẫn báo lỗi, thả joystick rồi kéo lại và kiểm tra bánh.':isolatedStallTest?'Đang thử tạm: lỗi encoder/stall chỉ dừng bánh bị lỗi. Kê bốn bánh khỏi đất; thả joystick hoặc nhấn DỪNG để dừng xe.':'Đã đăng nhập. Kéo joystick để chạy, thả tay để dừng. Sau nút DỪNG, kéo lại joystick để chạy tiếp.'):'Điền chân GPIO, thông số encoder, PID và bật HARDWARE_ENABLED trong config.py. Có thể chọn mô phỏng để thử giao diện.';
     controlAvailability();renderLive(data);
   }catch(e){if(epoch===state.epoch&&(!state.connected||++statusFailures>=STATUS_FAILS_OFFLINE)){statusFailures=0;setOffline(e);}}finally{polling=false;}
 }
