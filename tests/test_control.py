@@ -27,7 +27,6 @@ class MotorFake:
 class EncoderFake:
     def __init__(self):
         self.rpm = 0
-        self.b = None
         self.pulses = 0
         self.counts_per_rev = 100
         self.no_pulse_seconds = 0
@@ -84,6 +83,22 @@ class WheelTests(unittest.TestCase):
         w.set_target_rpm(-100); w.update(.05)
         self.assertEqual(w.motor.output, 0)
 
+    def test_position_follows_commanded_direction_including_coasting(self):
+        w = make_wheel(); w.set_target_rpm(60); w.update(.05)
+        w.encoder.pulses = 100; w.update(.05)
+        self.assertEqual(w.position_pulses, 100)
+        w.set_target_rpm(0); w.encoder.pulses = 105; w.update(.05)
+        self.assertEqual(w.position_pulses, 105)  # quan tinh van tinh theo chieu tien cu
+        w.set_target_rpm(-60)
+        for _ in range(12): w.update(.05)
+        self.assertEqual(w.direction, -1)
+        w.encoder.pulses = 155; w.update(.05)
+        self.assertEqual(w.position_pulses, 55)
+        status = w.status()
+        self.assertEqual(status['position_pulses'], 55)
+        self.assertAlmostEqual(status['signed_distance_m'], 55 / 100 * math.pi * .065, delta=1e-3)
+        self.assertAlmostEqual(status['distance_m'], 155 / 100 * math.pi * .065, delta=1e-3)
+
     def test_no_encoder_pulses_latches_fault(self):
         w = make_wheel(); w.set_target_rpm(100); w.encoder.no_pulse_seconds = 10
         for _ in range(60): w.update(.05)
@@ -114,9 +129,15 @@ class RobotTests(unittest.TestCase):
     def test_deadman_rejects_delayed_command(self):
         self.command();self.robot.update(.05)
         self.now += config.COMMAND_TIMEOUT_MS + 1
-        with self.assertRaises(ValueError): self.command(seq=1)
+        with self.assertRaises(ValueError) as ctx: self.command(seq=1)
+        self.assertEqual(str(ctx.exception), 'command_timeout')
         self.assertIsNone(self.robot.session)
         self.assertTrue(all(w.motor.output == 0 for w in self.wheels))
+        # Xin quyen lai duoc sau khi het han; loi that khong bao la het han lenh.
+        self.session = self.robot.arm()
+        self.robot.fault = 'motor_stop_error'
+        with self.assertRaises(ValueError) as ctx: self.command(seq=1)
+        self.assertEqual(str(ctx.exception), 'invalid_or_expired_session')
 
     def test_stop_invalidates_session_and_old_release_cannot_stop_new(self):
         self.robot.release(self.session)
@@ -152,6 +173,83 @@ class RobotTests(unittest.TestCase):
         self.robot.release(self.robot.session)
         self.robot.fault='motor_stop_error'
         with self.assertRaises(ValueError):self.robot.arm()
+
+    def test_inner_side_below_minimum_stops_outer_side_keeps_running(self):
+        self.robot.command(self.session,0,.5,-.4,100)  # Trai 10, phai 90 RPM.
+        self.assertEqual(self.robot.left,0)
+        self.assertEqual(self.robot.right,90)
+        for wheel in self.wheels:
+            self.assertEqual(wheel.requested,0 if wheel.name.endswith('_left') else 90)
+
+    def test_minimum_applies_in_reverse_and_keeps_exact_threshold(self):
+        self.robot.command(self.session,0,-.2,0,100)
+        self.assertEqual((self.robot.left,self.robot.right),(0,0))
+        self.assertEqual(self.robot.reason,'idle')
+        self.robot.command(self.session,1,-config.MIN_WHEEL_RPM/100,0,100)
+        self.assertEqual(self.robot.left,-config.MIN_WHEEL_RPM)
+
+    def stalled_wheel(self):
+        wheel=make_wheel()
+        wheel.encoder.no_pulse_seconds=10
+        wheel.set_target_rpm(60)
+        return wheel
+
+    def run_wheel(self,wheel,seconds):
+        for _ in range(round(seconds/.05)):
+            wheel.set_target_rpm(60)  # Lenh joystick van toi trong luc banh loi.
+            wheel.update(.05)
+
+    def test_stalled_wheel_rests_then_retries_while_joystick_held(self):
+        wheel=self.stalled_wheel()
+        self.run_wheel(wheel,config.STALL_TIMEOUT_MS/1000-.1)
+        self.assertIsNone(wheel.fault)
+        while not wheel.fault:self.run_wheel(wheel,.05)
+        self.assertEqual(wheel.motor.output,0)
+        self.run_wheel(wheel,config.STALL_RETRY_MS/1000-.2)
+        self.assertIsNotNone(wheel.fault)
+        self.assertEqual(wheel.motor.output,0)
+        self.run_wheel(wheel,.4)
+        self.assertIsNone(wheel.fault)
+        self.assertGreater(wheel.motor.output,0)
+
+    def test_stuck_wheel_stops_retrying_until_new_arm(self):
+        wheel=self.stalled_wheel()
+        cycle=(config.STALL_TIMEOUT_MS+config.STALL_RETRY_MS)/1000+.2
+        self.run_wheel(wheel,cycle*(config.STALL_MAX_RETRIES+2))
+        self.assertIsNotNone(wheel.fault)
+        self.assertEqual(wheel.retries,config.STALL_MAX_RETRIES)
+        self.run_wheel(wheel,cycle)
+        self.assertIsNotNone(wheel.fault)
+        self.assertEqual(wheel.motor.output,0)
+        wheel.clear_stall()
+        self.assertEqual(wheel.retries,0)
+
+    def test_pulses_after_retry_give_the_wheel_all_its_retries_back(self):
+        wheel=self.stalled_wheel()
+        self.run_wheel(wheel,(config.STALL_TIMEOUT_MS+config.STALL_RETRY_MS)/1000+.2)
+        self.assertEqual(wheel.retries,1)
+        wheel.encoder.no_pulse_seconds=0
+        wheel.encoder.rpm=60
+        wheel.encoder.sample=lambda dt:True
+        self.run_wheel(wheel,.2)
+        self.assertEqual(wheel.retries,0)
+
+    def test_other_wheel_faults_do_not_retry(self):
+        wheel=make_wheel()
+        wheel.fault='bad_encoder'
+        self.run_wheel(wheel,config.STALL_RETRY_MS/1000+1)
+        self.assertEqual(wheel.fault,'bad_encoder')
+
+    def test_map_does_not_jump_when_wheel_faults_and_recovers(self):
+        front_left=next(w for w in self.wheels if w.name=='front_left')
+        front_left.position_pulses=200  # Hai banh trai lech nhau nhu sau mot luc chay.
+        self.robot._update_odometry()
+        before=self.robot.odometry.length
+        front_left.fault='encoder_or_stall:front_left'
+        self.robot._update_odometry()
+        front_left.fault=None
+        self.robot._update_odometry()
+        self.assertEqual(self.robot.odometry.length,before)
 
     def test_low_target_wheel_gets_breakaway_duty_before_false_stall(self):
         wheel=make_wheel()
@@ -216,20 +314,17 @@ class PinFake:
 
 
 class EncoderTests(unittest.TestCase):
-    def test_rising_edges_rpm_rollover_and_signed_counts(self):
+    def test_rising_edges_rpm_and_rollover(self):
         from encoder import Encoder
         machine=types.SimpleNamespace(Pin=PinFake,disable_irq=lambda:0,enable_irq=lambda x:None)
         with patch.dict(sys.modules,{'machine':machine}):
-            e=Encoder(1,None,100,filter_tau=0)
+            e=Encoder(1,100,filter_tau=0)
             for _ in range(15):e._irq(None)
             e.sample(.1);self.assertAlmostEqual(e.rpm,90);self.assertEqual(e.pulses,15)
-            e.count=e.previous_count=e.MASK-2;e.travel_count=e.previous_travel=e.MASK-2
+            e.travel_count=e.previous_travel=e.MASK-2
             for _ in range(5):e._irq(None)
             e.sample(.1);self.assertAlmostEqual(e.rpm,30);self.assertEqual(e.pulses,20)
-            e2=Encoder(1,2,100,filter_tau=0);e2.b.level=0
-            for _ in range(10):e2._irq(None)
-            e2.sample(.1);self.assertAlmostEqual(e2.rpm,-60);self.assertEqual(e2.pulses,10)
-            e2.close();self.assertIsNone(e2.a.handler)
+            e.close();self.assertIsNone(e.a.handler)
 
     def test_edges_closer_than_min_interval_are_rejected(self):
         import encoder
@@ -237,7 +332,7 @@ class EncoderTests(unittest.TestCase):
         now=[0]
         fake_time=types.SimpleNamespace(ticks_us=lambda:now[0],ticks_diff=lambda a,b:a-b)
         with patch.dict(sys.modules,{'machine':machine}), patch.object(encoder,'time',fake_time):
-            e=encoder.Encoder(1,None,20,filter_tau=0,min_interval_us=4000)
+            e=encoder.Encoder(1,20,filter_tau=0,min_interval_us=4000)
             for t in (0,100,1500,3999,4000,4050,9000,12000,15000):
                 now[0]=t;e._irq(None)
             # Canh that 0, 4000, 9000 (12000 chi cach 3000), 15000 cach 9000 la 6000.
@@ -292,7 +387,7 @@ class WebTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('wheels',public)
         self.assertNotIn('token',public)
         self.assertNotIn('test-password',json.dumps(public))
-        status=json.loads(self.server.route(b'GET',b'/api/status',self.headers,b'')[2])
+        status=json.loads(bytes(self.server.route(b'GET',b'/api/status',self.headers,b'')[2]))
         self.assertEqual(public['boot']['id'],status['boot']['id'])
         writer=Writer()
         await self.server.handle(Reader(b'GET /api/status HTTP/1.1\r\nHost: esp32\r\n\r\n'),writer)
@@ -309,7 +404,7 @@ class WebTests(unittest.IsolatedAsyncioTestCase):
         self.post(b'/api/stop',{'session':session});self.assertIsNone(self.robot.session)
         with self.assertRaises(HTTPError) as ctx:self.server.route(b'POST',b'/api/arm',{},b'{}')
         self.assertEqual(ctx.exception.status,401)
-        status=json.loads(self.server.route(b'GET',b'/api/status',self.headers,b'')[2])
+        status=json.loads(bytes(self.server.route(b'GET',b'/api/status',self.headers,b'')[2]))
         self.assertNotIn('session',status);self.assertNotIn('token',status);self.assertNotIn('LOGIN_PASSWORD',status)
     async def test_login_is_required_for_every_control_endpoint(self):
         for headers in ({}, {b'x-control-key':b'old-key'}, {b'authorization':b'Bearer invented'}):
@@ -354,7 +449,7 @@ class WebTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_login_remains_valid_after_long_inactivity(self):
         self.now+=365*24*60*60*1000
-        status=json.loads(self.server.route(b'GET',b'/api/status',self.headers,b'')[2])
+        status=json.loads(bytes(self.server.route(b'GET',b'/api/status',self.headers,b'')[2]))
         self.assertFalse(status['armed'])
         self.assertIn(self.token,self.server.logins)
         self.post(b'/api/arm',{})
@@ -383,7 +478,7 @@ class WebTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(self.token,self.server.logins)
         self.assertNotIn(first_other,self.server.logins)
         self.assertEqual(self.robot.session,session)
-        status=json.loads(self.server.route(b'GET',b'/api/status',self.headers,b'')[2])
+        status=json.loads(bytes(self.server.route(b'GET',b'/api/status',self.headers,b'')[2]))
         self.assertTrue(status['armed'])
 
     async def test_fragmented_http_response_and_cleanup(self):

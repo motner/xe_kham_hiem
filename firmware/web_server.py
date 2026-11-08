@@ -4,6 +4,7 @@ import json
 import os
 import binascii
 import errno
+import gc
 from boot_info import BootInfo
 from http_transport import SocketServer
 
@@ -23,8 +24,40 @@ class FileBody:
         return self.size
 
 
+class JsonBuffer:
+    """Ghi JSON tung phan vao bo dem cap san: khong can doan RAM lien lon khi heap da vun.
+
+    Thieu doan lien, heap Python lay het RAM he thong con lai va Wi-Fi te liet (SESSION_LOG).
+    """
+
+    def __init__(self, size):
+        self.view = memoryview(bytearray(size))
+        self.busy = False
+
+    def encode(self, obj):
+        """Tra memoryview va giu bo dem toi khi release; None neu dang ban hoac khong du cho."""
+        if self.busy:
+            return None
+        view, size, used = self.view, len(self.view), 1
+        view[0] = 0x7b  # {
+        for key, value in obj.items():
+            piece = ('%s%s:%s' % (',' if used > 1 else '', json.dumps(key), json.dumps(value))).encode()
+            end = used + len(piece)
+            if end >= size:
+                return None
+            view[used:end] = piece
+            used = end
+        view[used] = 0x7d  # }
+        self.busy = True
+        return view[:used + 1]
+
+    def release(self):
+        self.busy = False
+
+
 class WebServer:
     MAX_LOGINS = 4
+    STATUS_BUFFER_BYTES = 3072  # Status thuc te toi da khoang 2,3 KB.
 
     def __init__(self, robot, config, html):
         self.robot, self.config, self.html = robot, config, html
@@ -35,6 +68,7 @@ class WebServer:
         self.control_owner = None
         self.control_session = None
         self.boot_info = BootInfo()
+        self.status_buffer = JsonBuffer(self.STATUS_BUFFER_BYTES)
 
     async def start(self, host='0.0.0.0', port=80):
         self.server = SocketServer(self.handle, host, port, 4, self.transport_error)
@@ -137,11 +171,13 @@ class WebServer:
             self.robot.check_timeout()
             result = self.robot.status()
             result['boot'] = self.boot_info.snapshot()
-            return 200, 'application/json', json.dumps(result).encode()
+            # Hai status cung luc hiem gap: phan sau moi can cap phat rieng.
+            return 200, 'application/json', self.status_buffer.encode(result) or json.dumps(result).encode()
         if method == b'GET' and path == b'/api/ping':
             return 200, 'application/json', json.dumps({
                 'message': 'ESP32 online', 'boot': self.boot_info.snapshot()}).encode()
-        if path not in (b'/api/login', b'/api/logout', b'/api/arm', b'/api/control', b'/api/stop'):
+        if path not in (b'/api/login', b'/api/logout', b'/api/arm', b'/api/control', b'/api/stop',
+                        b'/api/map_reset'):
             raise HTTPError(404, 'not_found')
         if method != b'POST':
             raise HTTPError(405, 'use_post')
@@ -164,6 +200,9 @@ class WebServer:
                 result = {'session': self.robot.arm()}
                 self.control_owner = token
                 self.control_session = result['session']
+            elif path == b'/api/map_reset':
+                self.robot.reset_map()
+                result = {'ok': True}
             elif path == b'/api/control':
                 if token != self.control_owner:
                     raise HTTPError(403, 'not_control_owner')
@@ -173,7 +212,7 @@ class WebServer:
             else:
                 if token != self.control_owner:
                     raise HTTPError(403, 'not_control_owner')
-                self.robot.release(data.get('session'))
+                self.robot.release(data.get('session') or self.control_session)
                 result = {'ok': True}
         except ValueError as error:
             raise HTTPError(409, str(error))
@@ -199,6 +238,7 @@ class WebServer:
                     writer.write(chunk)
                     await writer.drain()
         else:
+            body = memoryview(body)  # Cat khong sao chep.
             for offset in range(0, len(body), 1024):
                 writer.write(body[offset:offset + 1024])
                 await writer.drain()
@@ -216,6 +256,7 @@ class WebServer:
             await self.close_client(writer)
             return
         self.active_clients += 1
+        body = None
         try:
             try:
                 request = await asyncio.wait_for(self.read_request(reader), 2)
@@ -227,15 +268,28 @@ class WebServer:
                 status, content_type, body = 408, 'application/json', b'{"error":"request_timeout"}'
             except OSError:
                 raise
+            except MemoryError as error:
+                # Khong dung xe: lenh lai khong toi thi xe tu dung sau COMMAND_TIMEOUT_MS,
+                # con xe dang tu quay ve thi khong can web.
+                gc.collect()
+                print('HTTP thieu RAM:', error)
+                status, content_type, body = 503, 'application/json', b'{"error":"low_memory"}'
             except Exception as error:
                 self.robot.stop('server_error')
                 print('HTTP error:', error)
                 status, content_type, body = 500, 'application/json', b'{"error":"server_error"}'
-            await asyncio.wait_for(self.respond(writer, status, content_type, body), 2)
+            # Trang 78 KB can vai giay tren Wi-Fi yeu; gioi han 2 giay se cat cut trang.
+            limit = 20 if isinstance(body, FileBody) else 2
+            await asyncio.wait_for(self.respond(writer, status, content_type, body), limit)
         except (OSError, asyncio.TimeoutError) as error:
             if isinstance(error, OSError) and error.args and error.args[0] == errno.EIO:
                 self.transport_error(error)
+        except MemoryError as error:
+            gc.collect()
+            print('HTTP thieu RAM:', error)
         finally:
+            if isinstance(body, memoryview):
+                self.status_buffer.release()
             try:
                 await self.close_client(writer)
             finally:

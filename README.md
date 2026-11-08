@@ -64,6 +64,17 @@ mới, không tự chạy lại. `main.py` cũng đóng motor ở lớp ngoài c
 vòng chạy bất đồng bộ thoát bất thường. Khi cập nhật bản này phải nạp thêm
 `http_transport.py` cùng `web_server.py` và `main.py`.
 
+## Nạp bằng `tools/deploy.py` (nên dùng)
+
+Script biên dịch module sang `.mpy`, tiết kiệm RAM cho Wi-Fi so với để board tự biên dịch `.py`:
+
+```
+pip install pyserial mpy-cross==1.29.0.post2
+python3 tools/deploy.py
+```
+
+Đóng Thonny trước khi chạy. Nếu sau đó chép một file `.py` trùng tên lên board bằng Thonny, board sẽ dùng file `.py` đó thay cho `.mpy`.
+
 ## Nạp bằng Thonny
 
 1. Chọn **MicroPython (ESP32)** và đúng cổng USB. Nhấn Ctrl+C để dừng code cũ.
@@ -151,9 +162,8 @@ bổ sung xử lý phù hợp trước khi dùng. Không tự suy đoán chân h
 
 - `motor_channel`: chọn một trong `upper_a`, `upper_b`, `lower_a`, `lower_b`.
   GPIO IN1/IN2/PWM đã lưu trong `MOTOR_CHANNELS` theo ảnh; phải chọn đúng vị trí bánh.
-- `encoder_a`: GPIO đầu ra xung A. `encoder_b`: GPIO B hoặc `None` nếu một kênh.
+- `encoder_a`: GPIO đầu ra xung của encoder một kênh (chỉ có OUT, không biết chiều quay).
 - `motor_inverted`: đảo chiều sao cho lệnh dương đưa xe tiến.
-- `encoder_inverted`: đảo dấu encoder A/B nếu cần; một kênh không xác định chiều.
 - `counts_per_rev`: số **cạnh lên A / một vòng bánh sau hộp số**. Code dùng 1x,
   không nhân 4 như giải mã quadrature 4x. Đã biết xung/vòng motor thì cần tính tỉ số truyền.
 - `diameter_mm`: đường kính thực tế của từng bánh.
@@ -203,7 +213,8 @@ Ban đầu kiểm tra khi bánh được kê khỏi mặt đất và có cách n
 
 Đường kính/xung-vòng ở web chỉ chỉnh được trong mô phỏng. Trong chế độ thật,
 web hiện thông số bánh trước trái; thay đổi cấu hình thực bằng `config.py`.
-RPM hiển thị là độ lớn; `signed_rpm` trong API chỉ có khi encoder có B.
+RPM hiển thị là độ lớn. Encoder một kênh không biết chiều; `signed_distance_m` trong API
+cộng/trừ xung theo chiều đã lệnh gần nhất (suy luận, không phải đo).
 Quãng đường là trung bình độ dài bánh đã quay, không phải độ dịch chuyển xe.
 Không dùng số liệu này để khẳng định xe đang đi thẳng hoặc định vị chính xác.
 

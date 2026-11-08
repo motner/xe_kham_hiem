@@ -17,6 +17,7 @@ LOGIN_USERNAME = "admin"
 LOGIN_PASSWORD = "24122006"
 PWM_FREQUENCY = 1000
 MAX_RPM = 120
+MIN_WHEEL_RPM = 40  # Lenh joystick thap hon thi banh dung han; do tren xe ke banh: duoi muc nay banh giat.
 MAX_DUTY = 1.0  # Toi da 100% duty PWM cho ca 4 banh.
 CONTROL_PERIOD_MS = 50
 MAX_LOOP_GAP_MS = 250
@@ -25,14 +26,20 @@ ENCODER_FILTER_TAU = 0.10
 # Bo xung cach nhau < 4 ms (= 750 RPM banh voi dia 20 khe): do thuc te banh truoc phai
 # co hang tram xung gia < 3 ms do nhieu motor; motor TT that chi ~200-300 RPM.
 ENCODER_MIN_INTERVAL_US = 4000
-COMMAND_TIMEOUT_MS = 700
+COMMAND_TIMEOUT_MS = 1000  # Mat lenh lau hon thi tu dung; o 120 RPM xe di them toi da khoang 0,4 m.
 ACCEL_RPM_PER_SECOND = 100
 REVERSE_WAIT_MS = 400
 REVERSE_SAFE_RPM = 5
 STALL_TIMEOUT_MS = 1500
 STALL_MIN_DUTY = 0.20
+# Banh bao stall duoc nghi roi tu thu lai; het so lan thi cho lan keo joystick moi.
+STALL_RETRY_MS = 2000
+STALL_MAX_RETRIES = 3
 # Banh dung yen qua BREAKAWAY_DELAY_MS ma co muc tieu RPM: cap it nhat duty nay de thang ma sat tinh.
-BREAKAWAY_DUTY = 0.75  # Do bang bench: RL can ~0.6, FR lui can ~0.7 de bat dau quay.
+# Tang dan tu BREAKAWAY_DUTY den khi banh nhuc nhich: banh nhay khong bi vot, banh kho van len duoc 100%.
+# Do bang bench: FR (motor moi) tu dung yen on dinh tu duty 0.6 khi tien, 0.5 khi lui.
+BREAKAWAY_DUTY = 0.35
+BREAKAWAY_RAMP_PER_S = 1.0
 BREAKAWAY_DELAY_MS = 300
 # THU TAM: False chi dung banh encoder/stall loi; doi lai True sau khi thu.
 STOP_ALL_ON_ENCODER_STALL = False
@@ -52,7 +59,22 @@ ENCODER_PINS = (39, 34, 35, 36)
 # Hien moi danh dau chan; chua chay servo hay do khoang cach trong vong PID.
 SERVO_PIN = 23
 ULTRASONIC_TRIGGER_PIN = 13
-ULTRASONIC_ECHO_PIN = 18
+ULTRASONIC_ECHO_PIN = 18  # HC-SR04 ra 5 V: PHAI chia ap xuong 3,3 V truoc khi vao GPIO.
+
+# Quet vat can. Goc duong la ben phai xe, 0 la thang phia truoc.
+SCANNER_ENABLED = True
+SCAN_PERIOD_MS = 3000
+SCAN_ANGLES = (-60, -30, 0, 30, 60)
+SCAN_SETTLE_MS = 200       # Cho servo toi goc moi truoc khi do.
+GUARD_PERIOD_MS = 100      # Giua cac lan quet: do thang phia truoc.
+SCAN_MAX_CM = 150
+SCANNER_OFFSET_M = 0.08    # Do lai: khoang cach tu tam xe toi cam bien.
+SERVO_CENTER_US = 1500     # Chinh neu cam bien chua nhin thang khi o goc 0.
+SERVO_US_PER_DEG = 10.5
+SERVO_INVERTED = False     # Dat True neu goc duong lam servo quay sang trai.
+
+# Vi tri tren ban do: can hieu chinh tren san bang tools/calibrate_track.py.
+TRACK_WIDTH_M = 0.20       # Tam: tam-tam banh ~0,132 m x 1,5 do truot khi xoay. Chua hieu chuan tren san.
 WIFI_DISABLE_POWER_SAVE = True  # Can chu y IRQ GPIO36/39 tren ESP32 classic.
 
 # Thu tu cau hinh/test theo ket qua tren xe: truoc trai, sau phai, sau trai, truoc phai.
@@ -63,21 +85,25 @@ WIFI_DISABLE_POWER_SAVE = True  # Can chu y IRQ GPIO36/39 tren ESP32 classic.
 # encoder_a: mot GPIO trong ENCODER_PINS, phai dung encoder cua motor do.
 # Dia 20 khe, dem canh len A: 20 xung/vong NEU dia quay 1:1 voi banh.
 # Duong kinh 60 mm la xap xi theo anh san pham; do lai banh thuc te de hieu chinh.
-# Encoder trong anh chi co OUT: encoder_b=None, chi do do lon RPM.
-# pid=(Kp, Ki, Kd): dau ra 0..1, sai so RPM, dt giay; can hieu chinh.
+# Encoder trong anh chi co OUT (mot kenh): chi do do lon RPM, khong biet chieu.
+# pid=(Kp, Ki, Kd): dau ra 0..1, sai so RPM, dt giay.
+# Do tung banh, ke khong tai, pin day (11/2026): (0.008, 0.003) dao dong manh.
+# Do lai 11/2026: FL (0.0022, 0.005), RR (0.001, 0.003), RL (0.002, 0.005).
+# FR tam giu (0.002, 0.005): lan do cuoi banh yeu bat thuong, can do lai.
+# FR voi Kp 0.003 bi bao ket. RL dao dong manh o 80-100 RPM: PID khong sua duoc.
 WHEELS = [
     {"name": "front_left", "motor_channel": "upper_a",
-     "encoder_a": 39, "encoder_b": None, "motor_inverted": True,
-     "encoder_inverted": False, "counts_per_rev": 20, "diameter_mm": 60, "pid": (0.008, 0.003, 0.0)},
+     "encoder_a": 39, "motor_inverted": True,
+     "counts_per_rev": 20, "diameter_mm": 65, "pid": (0.0022, 0.005, 0.0)},
     {"name": "rear_right", "motor_channel": "lower_a",
-     "encoder_a": 34, "encoder_b": None, "motor_inverted": False,
-     "encoder_inverted": False, "counts_per_rev": 20, "diameter_mm": 60, "pid": (0.008, 0.003, 0.0)},
+     "encoder_a": 34, "motor_inverted": False,
+     "counts_per_rev": 20, "diameter_mm": 65, "pid": (0.002, 0.005, 0.0)},
     {"name": "rear_left", "motor_channel": "lower_b",
-     "encoder_a": 35, "encoder_b": None, "motor_inverted": False,
-     "encoder_inverted": False, "counts_per_rev": 20, "diameter_mm": 60, "pid": (0.008, 0.003, 0.0)},
+     "encoder_a": 35, "motor_inverted": False,
+     "counts_per_rev": 20, "diameter_mm": 65, "pid": (0.002, 0.005, 0.0)},
     {"name": "front_right", "motor_channel": "upper_b",
-     "encoder_a": 36, "encoder_b": None, "motor_inverted": True,
-     "encoder_inverted": False, "counts_per_rev": 20, "diameter_mm": 60, "pid": (0.008, 0.003, 0.0)},
+     "encoder_a": 36, "motor_inverted": True,
+     "counts_per_rev": 20, "diameter_mm": 65, "pid": (0.002, 0.005, 0.0)},
 ]
 
 
@@ -92,15 +118,18 @@ def validate_hardware():
         return
     if DRIVER_TYPE != "IN1_IN2_PWM":
         raise ValueError("Driver chua duoc ho tro: " + DRIVER_TYPE)
-    if not (0 < MAX_DUTY <= 1 and 0 < MAX_RPM <= 200):
+    if not (0 < MAX_DUTY <= 1 and 0 < MAX_RPM <= 200 and 0 <= MIN_WHEEL_RPM < MAX_RPM):
         raise ValueError("MAX_DUTY / MAX_RPM khong hop le")
     if not (0 < CONTROL_PERIOD_MS <= ENCODER_SAMPLE_MS < STALL_TIMEOUT_MS):
         raise ValueError("Chu ky dieu khien/encoder/stall khong hop le")
     if not (CONTROL_PERIOD_MS < MAX_LOOP_GAP_MS < COMMAND_TIMEOUT_MS):
         raise ValueError("MAX_LOOP_GAP_MS / COMMAND_TIMEOUT_MS khong hop le")
     if not (ACCEL_RPM_PER_SECOND > 0 and REVERSE_WAIT_MS >= ENCODER_SAMPLE_MS and REVERSE_SAFE_RPM >= 0
-            and 0 < STALL_MIN_DUTY <= MAX_DUTY and ENCODER_FILTER_TAU >= 0 and PWM_FREQUENCY > 0):
+            and 0 < STALL_MIN_DUTY <= MAX_DUTY and STALL_RETRY_MS > 0 and STALL_MAX_RETRIES >= 0 and ENCODER_FILTER_TAU >= 0 and PWM_FREQUENCY > 0):
         raise ValueError("Thong so dieu khien khong hop le")
+    if not (0.05 <= TRACK_WIDTH_M <= 1 and SCAN_PERIOD_MS > 0 and SCAN_SETTLE_MS > 0 and SCAN_ANGLES
+            and all(-90 <= a <= 90 for a in SCAN_ANGLES) and GUARD_PERIOD_MS > 0 and 0 < SCAN_MAX_CM <= 400):
+        raise ValueError("Thong so quet/ban do khong hop le")
     expected = ('front_left', 'rear_right', 'rear_left', 'front_right')
     if len(WHEELS) != 4 or tuple(w['name'] for w in WHEELS) != expected:
         raise ValueError("WHEELS can dung thu tu test FL, RR, RL, FR")
@@ -114,18 +143,14 @@ def validate_hardware():
             raise ValueError(wheel['name'] + ': can gan motor_channel rieng cho tung banh')
         channels.add(channel)
         motor_pins = MOTOR_CHANNELS[channel]
-        for key in ('in1', 'in2', 'pwm', 'encoder_a', 'encoder_b'):
+        for key in ('in1', 'in2', 'pwm', 'encoder_a'):
             pin = motor_pins[key] if key in ('in1', 'in2', 'pwm') else wheel[key]
-            if key == 'encoder_b' and pin is None:
-                continue
             if type(pin) is not int or pin < 0 or pin in pins:
                 raise ValueError(wheel['name'] + ': GPIO thieu, trung hoac khong hop le: ' + key)
             if key in ('in1', 'in2', 'pwm') and pin not in output_pins:
                 raise ValueError(wheel['name'] + ': GPIO khong ho tro output tren ESP32 classic')
             if key == 'encoder_a' and pin not in ENCODER_PINS:
                 raise ValueError(wheel['name'] + ': encoder_a phai theo ENCODER_PINS trong so do')
-            if key == 'encoder_b' and pin is not None:
-                raise ValueError('So do nay dung encoder mot kenh OUT, encoder_b phai la None')
             pins.add(pin)
         for key in ('counts_per_rev', 'diameter_mm'):
             value = wheel[key]

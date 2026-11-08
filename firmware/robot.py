@@ -1,8 +1,8 @@
-"""Dieu phoi 4 banh; lease 1 nguoi dieu khien, sequence, watchdog lenh."""
 import math
 import time
 import os
 import binascii
+from odometry import Odometry
 
 
 def now_ms():
@@ -16,8 +16,10 @@ def elapsed_ms(now, before):
 
 
 class Robot:
-    def __init__(self, wheels, cfg, clock=now_ms):
+    def __init__(self, wheels, cfg, clock=now_ms, scanner=None):
         self.wheels, self.cfg, self.clock = wheels, cfg, clock
+        self.scanner = scanner
+        self.odometry = Odometry(cfg.TRACK_WIDTH_M)
         self.ready = bool(wheels) and len(wheels) == 4
         self.session = None
         self.sequence = -1
@@ -40,8 +42,7 @@ class Robot:
         for wheel in self.wheels:
             if wheel.fault and wheel.fault.startswith('encoder_or_stall:'):
                 print('Xoa loi:', wheel.fault)
-                wheel.fault = None
-                wheel.stall_elapsed = 0.0
+                wheel.clear_stall()
 
     def arm(self):
         self.check_timeout()
@@ -59,6 +60,9 @@ class Robot:
 
     def command(self, session, sequence, throttle, steering, max_rpm):
         self.check_timeout()
+        if self.ready and not self.fault and not self.session and self.reason == 'command_timeout':
+            # Rieng voi loi khac: web duoc phep xin quyen lai neu nguoi lai van giu joystick.
+            raise ValueError('command_timeout')
         if not self.ready or self.fault or not self.session or session != self.session:
             raise ValueError('invalid_or_expired_session')
         if type(sequence) is not int or sequence < 0 or sequence > 1000000000 or sequence <= self.sequence:
@@ -69,7 +73,8 @@ class Robot:
             raise ValueError('command_out_of_range')
         left, right = throttle + steering, throttle - steering
         scale = max(1, abs(left), abs(right))
-        self.left, self.right = left / scale * max_rpm, right / scale * max_rpm
+        self.left = self._drivable(left / scale * max_rpm)
+        self.right = self._drivable(right / scale * max_rpm)
         self.sequence = sequence
         self.last_command = self.clock()
         self.reason = 'running' if self.left or self.right else 'idle'
@@ -79,6 +84,35 @@ class Robot:
             wheel.set_target_rpm(target)
             if wheel.requested == 0:
                 wheel.stop()
+
+    def _drivable(self, rpm):
+        # Duoi nguong banh chay giat: dung han de xe xoay quanh ben trong khi re gat.
+        return rpm if abs(rpm) >= self.cfg.MIN_WHEEL_RPM else 0
+
+    def reset_map(self):
+        if self.left or self.right:
+            raise ValueError('vehicle_moving')
+        self.odometry.reset()
+
+    def _update_odometry(self):
+        # Cong quang duong moi cua tung banh, khong cong gia tri tich luy: banh loi roi hoi lai
+        # lam doi so banh tinh trung binh, neu khong vi tri tren ban do se nhay.
+        left = right = 0.0
+        left_count = right_count = 0
+        for wheel in self.wheels:
+            distance = wheel.signed_distance_m()
+            moved = distance - wheel.last_distance_m
+            wheel.last_distance_m = distance
+            if wheel.fault:
+                continue
+            if wheel.name.endswith('_left'):
+                left += moved
+                left_count += 1
+            else:
+                right += moved
+                right_count += 1
+        if left_count and right_count:
+            self.odometry.update(left / left_count, right / right_count)
 
     def stop(self, reason='stopped'):
         self.session = None
@@ -110,6 +144,8 @@ class Robot:
         if self.fault:
             return
         try:
+            if self.scanner:
+                self.scanner.update(dt, self.odometry)
             for wheel in self.wheels:
                 wheel.update(dt)
                 if wheel.fault:
@@ -121,6 +157,7 @@ class Robot:
                     print('Loi:', self.fault)
                     self.stop(self.fault)
                     break
+            self._update_odometry()
         except Exception:
             self.fault = 'control_exception'
             self.stop(self.fault)
@@ -133,13 +170,19 @@ class Robot:
                 'fault': self.fault, 'reason': self.reason, 'max_rpm': self.cfg.MAX_RPM,
                 'wheel_faults': [wheel.fault for wheel in self.wheels if wheel.fault],
                 'stop_all_on_encoder_stall': getattr(self.cfg, 'STOP_ALL_ON_ENCODER_STALL', True),
-                'loop_ms': self.loop_ms, 'command_timeout_ms': self.cfg.COMMAND_TIMEOUT_MS,
-                'left_target': self.left, 'right_target': self.right, 'wheels': wheels}
+                'loop_ms': self.loop_ms, 'wheels': wheels,
+                'pose': self.odometry.status(), 'trail': self.odometry.trail,
+                'scan': self.scanner.status() if self.scanner else None}
 
     def close(self):
         try:
             self.stop('shutdown')
         finally:
+            if self.scanner:
+                try:
+                    self.scanner.close()
+                except Exception as error:
+                    print('Cleanup:', error)
             for wheel in self.wheels:
                 try:
                     wheel.close()

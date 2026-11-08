@@ -18,9 +18,9 @@ class Element {
 }
 const els={};for(const m of html.matchAll(/id="([^"]+)"/g))els[m[1]]=new Element(m[1]);
 for(let i=0;i<4;i++)for(const kind of ['rpm','pulses','bar'])els['wheel-'+kind+'-'+i]=new Element();
-const presets=[40,80,140].map(s=>{let b=new Element();b.dataset.speed=s;return b});
-for(const id of ['target','speed','diameter','ppr'])els[id].tagName='INPUT';els.mode.tagName='SELECT';
-const doc=new Element(),win=new Element();doc.getElementById=id=>{assert(els[id],id);return els[id]};doc.createElement=()=>new Element();doc.querySelectorAll=sel=>sel==='[data-speed]'?presets:sel==='#diameter,#ppr,#reset'?['diameter','ppr','reset'].map(i=>els[i]):[...presets,...['target','speed'].map(i=>els[i])];
+const presets=[];
+for(const id of ['diameter','ppr'])els[id].tagName='INPUT';els.mode.tagName='SELECT';
+const doc=new Element(),win=new Element();doc.getElementById=id=>{assert(els[id],id);return els[id]};doc.createElement=()=>new Element();doc.querySelectorAll=sel=>sel==='#diameter,#ppr,#reset'?['diameter','ppr','reset'].map(i=>els[i]):[];
 let now=0,fetches=0;
 const savedLogin=new Map();
 const sessionStorage={getItem:key=>savedLogin.get(key)||null,setItem:(key,value)=>savedLogin.set(key,value),removeItem:key=>savedLogin.delete(key)};
@@ -28,23 +28,23 @@ const ctx={document:doc,window:win,location:{protocol:'file:'},performance:{now:
 const run=s=>vm.runInContext(s,ctx),joy=els.joystick;
 assert.equal(run('state.mode'),'demo');assert.equal(fetches,0);assert.equal(joy.attrs['aria-disabled'],'false');
 run('updateJoystick(.02,.02)');assert.equal(run('state.left'),0);assert.equal(els['joystick-power'].textContent,'0%');
-joy.trigger('pointerdown',{pointerId:1,button:0,clientX:120,clientY:48});assert.equal(run('state.left'),80);assert.equal(run('state.right'),80);
+joy.trigger('pointerdown',{pointerId:1,button:0,clientX:120,clientY:48});assert.equal(run('state.left'),120);assert.equal(run('state.right'),120);
 joy.trigger('pointerdown',{pointerId:2,button:0,clientX:192,clientY:120});assert.equal(run('state.pointerId'),1);
-joy.trigger('pointermove',{pointerId:2,clientX:192,clientY:120});assert.equal(run('state.right'),80);
+joy.trigger('pointermove',{pointerId:2,clientX:192,clientY:120});assert.equal(run('state.right'),120);
 joy.trigger('pointermove',{pointerId:1,clientX:156,clientY:84});assert(run('state.left')>run('state.right'));assert.equal(run('state.right'),0);
-joy.trigger('pointermove',{pointerId:1,clientX:120,clientY:84});assert(run('state.left')>0&&run('state.left')<80);
-joy.trigger('pointermove',{pointerId:1,clientX:5000,clientY:120});assert.equal(run('state.left'),80);assert.equal(run('state.right'),-80);assert.equal(els['joystick-power'].textContent,'100%');
+joy.trigger('pointermove',{pointerId:1,clientX:120,clientY:84});assert(run('state.left')>0&&run('state.left')<120);
+joy.trigger('pointermove',{pointerId:1,clientX:5000,clientY:120});assert.equal(run('state.left'),120);assert.equal(run('state.right'),-120);assert.equal(els['joystick-power'].textContent,'100%');
 for(let i=0;i<30;i++){now+=200;run('tick()')}
 assert(+els.rpm.textContent>70);assert(+els.distance.textContent>0);assert(run('state.pulses.every(p=>p>0)'));assert(els['chart-rpm'].attrs.d.startsWith('M'));
 joy.trigger('pointerup',{pointerId:2});assert.equal(run('state.pointerId'),1);
 joy.trigger('pointerup',{pointerId:1});assert.equal(run('state.left'),0);assert.equal(run('state.right'),0);assert.equal(joy.capture,null);assert.equal(els['joystick-knob'].style.transform,'translate(0px,0px)');
 win.trigger('keydown',{key:'ArrowUp'});win.trigger('keydown',{key:'ArrowRight'});assert.equal(run('state.right'),0);assert(run('state.left')>0);
-win.trigger('keyup',{key:'ArrowRight'});assert.equal(run('state.right'),80);win.trigger('keyup',{key:'ArrowUp'});assert.equal(run('state.left'),0);
+win.trigger('keyup',{key:'ArrowRight'});assert.equal(run('state.right'),120);win.trigger('keyup',{key:'ArrowUp'});assert.equal(run('state.left'),0);
 for(const ev of ['pointercancel','lostpointercapture']){joy.trigger('pointerdown',{pointerId:3,button:0,clientX:120,clientY:48});joy.trigger(ev,{pointerId:3});assert.equal(run('state.left'),0);}
 for(const ev of ['blur','pagehide']){run('updateJoystick(0,1)');win.trigger(ev);assert.equal(run('state.left'),0)}
 run('updateJoystick(0,1)');win.trigger('keydown',{code:'Space'});assert.equal(run('state.left'),0);
-run('updateJoystick(0,.55)');run('setTarget(140)');assert(Math.abs(run('state.left')-70)<.001);
-run('setTarget(999)');assert.equal(run('state.target'),200);assert(Math.abs(run('state.left')-100)<.001);
+run('updateJoystick(0,.55)');assert(Math.abs(run('state.left')-60)<.001);
+assert.equal(run('state.maxRpm'),120);
 els.mode.value='live';run('changeMode()');assert.equal(joy.attrs['aria-disabled'],'true');assert.equal(run('state.left'),0);joy.trigger('pointerdown',{pointerId:5,button:0,clientX:120,clientY:48});assert.equal(run('state.left'),0);assert.equal(els.rpm.textContent,'—');assert.equal(fetches,0);
 console.log('PASS: pointer drag, analog speed, deadzone, differential mixing, bounds, multi-touch, diagonal keys, release/cancel/blur/space stop, simulation chart and live lock.');
 assert.equal(els['login-screen'].hidden,false);assert.equal(els.dashboard.hidden,true);
@@ -115,20 +115,22 @@ run('clearLogin()');
   assert.equal(requests.length,beforeIdle);doc.hidden=false;
   run('bootChecking=true');await run('poll()');assert.equal(requests.length,beforeIdle);run('bootChecking=false');
   run('polling=true');await run('pollBoot()');assert.equal(requests.length,beforeIdle);run('polling=false');
-  // A transient status timeout stops the lease; recovery requires a new gesture.
+  // One lost status reply keeps driving; repeated failures stop the lease and need a new gesture.
   run("state.session='status-timeout';state.direction='joystick';state.y=1;state.left=80;state.right=80");
   ctx.fetch=async(path,opts)=>{if(path==='/api/status'){const e=new Error('timeout');e.name='AbortError';throw e;}return normalFetch(path,opts)};
+  await run('poll()');assert.equal(run('state.session'),'status-timeout');assert.equal(run('state.connected'),true);
+  await run('poll()');assert.equal(run('state.session'),'status-timeout');
   await run('poll()');assert.equal(run('state.session'),null);assert.equal(run('state.left'),0);
-  assert(els['notice-text'].textContent.includes('1,2 giây'));
+  assert(els['notice-text'].textContent.includes('2,5 giây'));
   ctx.fetch=normalFetch;beforeIdle=requests.filter(r=>r.path==='/api/arm').length;
   await run('poll()');assert.equal(run('state.connected'),true);
   assert.equal(requests.filter(r=>r.path==='/api/arm').length,beforeIdle);
   assert.equal(els.arm,undefined);assert.equal(run('state.session'),null);
-  run('setTarget(80);updateJoystick(0,1)');await new Promise(resolve=>setImmediate(resolve));
+  run('updateJoystick(0,1)');await new Promise(resolve=>setImmediate(resolve));
   assert.equal(run('state.session'),'test-session');
   const command=requests.filter(r=>r.path==='/api/control').at(-1).body;
   assert.equal(requests.filter(r=>r.path==='/api/control').at(-1).headers.Authorization,'Bearer login-token');
-  assert.equal(command.throttle,1);assert.equal(command.max_rpm,80);assert.equal(command.session,'test-session');
+  assert.equal(command.throttle,1);assert.equal(command.max_rpm,120);assert.equal(command.session,'test-session');
   // An isolated wheel stall stays visible without releasing the healthy wheels.
   status.stop_all_on_encoder_stall=false;
   status.wheel_faults=['encoder_or_stall:front_left'];
@@ -217,6 +219,26 @@ run('clearLogin()');
   assert.equal(requests.filter(r=>r.path==='/api/arm').length,beforeDelayedStop);
   resolveStop({ok:true,json:async()=>({ok:true})});await new Promise(resolve=>setImmediate(resolve));
   assert.equal(run('state.session'),'test-session');
+  // Wi-Fi giat lam het han lenh: van giu joystick thi tu xin quyen lai, khong tha joystick.
+  ctx.fetch=normalFetch;
+  const armsBeforeExpiry=requests.filter(r=>r.path==='/api/arm').length,stopsBeforeExpiry=requests.filter(r=>r.path==='/api/stop').length;
+  let leaseGone=true;
+  ctx.fetch=async(path,opts={})=>{if(path==='/api/control'&&leaseGone){leaseGone=false;return{ok:false,status:409,json:async()=>({error:'command_timeout'})};}return normalFetch(path,opts)};
+  run("state.session='old-lease';state.direction='joystick';state.y=1;state.left=80;state.right=80;state.ready=true;state.connected=true");
+  await run('sendControl()');await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(run('state.session'),'test-session');assert.equal(run('state.direction'),'joystick');
+  assert.equal(requests.filter(r=>r.path==='/api/arm').length,armsBeforeExpiry+1);
+  assert.equal(requests.filter(r=>r.path==='/api/stop').length,stopsBeforeExpiry);
+  assert.equal(requests.filter(r=>r.path==='/api/control').at(-1).body.session,'test-session');
+  // Status bao het han lenh cung khong tha joystick; ly do khac thi van dung.
+  ctx.fetch=normalFetch;status.armed=false;status.reason='command_timeout';
+  await run('poll()');assert.equal(run('state.session'),'test-session');assert.equal(run('state.direction'),'joystick');
+  status.reason='released';await run('poll()');assert.equal(run('state.session'),null);assert.equal(run('state.direction'),'stop');
+  status.armed=true;delete status.reason;
+  // Loi khac tren lenh dieu khien van dung han.
+  ctx.fetch=async(path)=>path==='/api/control'?{ok:false,status:409,json:async()=>({error:'invalid_or_expired_session'})}:{ok:true,json:async()=>({ok:true})};
+  run("state.session='bad-lease';state.direction='joystick';state.y=1");
+  await run('sendControl()');assert.equal(run('state.session'),null);assert.equal(run('state.direction'),'stop');
   // A failed command releases the session and resets the joystick.
   run("state.session='failed-session';state.ready=true;state.connected=true;controlAvailability()");
   ctx.fetch=async()=>{throw new Error('network failure')};
@@ -231,10 +253,15 @@ run('clearLogin()');
   }):normalFetch(path,opts);
   const timedCommand=run("state.session='timeout-lease';state.direction='joystick';state.y=1;state.left=80;state.right=80;sendControl()");
   await new Promise(resolve=>setImmediate(resolve));
+  // A lost command retries at once while the firmware watchdog still guards the car.
+  expireRequest();await timedCommand;await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(run('state.session'),'timeout-lease');assert.equal(run('state.direction'),'joystick');
+  expireRequest();await new Promise(resolve=>setImmediate(resolve));await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(run('state.session'),'timeout-lease');
   const expireCommand=expireRequest;ctx.setTimeout=originalSetTimeout;
-  expireCommand();await timedCommand;
+  expireCommand();await new Promise(resolve=>setImmediate(resolve));await new Promise(resolve=>setImmediate(resolve));
   assert.equal(run('state.session'),null);assert.equal(run('state.left'),0);
-  assert.equal(run('state.direction'),'stop');assert.equal(clearedDeadline,1);
+  assert.equal(run('state.direction'),'stop');assert.equal(clearedDeadline,3);
   assert(els.events.children.some(row=>row.children[1].textContent.includes('/api/control sau 600 ms')));
   assert(!els.events.children.some(row=>row.children[1].textContent.includes('signal is aborted without reason')));
   // The deadline also covers a response body which stalls after HTTP headers arrive.
@@ -245,7 +272,7 @@ run('clearLogin()');
   const stalledBody=run("requestJSON('/api/status',{},1200)");
   const bodyCheck=assert.rejects(stalledBody,e=>e.name==='TimeoutError'&&e.timeoutMs===1200&&e.path==='/api/status');
   await new Promise(resolve=>setImmediate(resolve));expireRequest();await bodyCheck;
-  assert.equal(clearedDeadline,2);
+  assert.equal(clearedDeadline,4);
   ctx.setTimeout=originalSetTimeout;ctx.clearTimeout=originalClearTimeout;
   console.log('PASS: command deadline stops and releases the lease, localized timeout includes endpoint/deadline, stalled JSON body is bounded.');
   // Logout stops the active lease, clears saved credentials and rejects a late arm.
@@ -300,5 +327,39 @@ run('clearLogin()');
   assert.equal(run('state.authToken'),null);assert.equal(run('state.mode'),'demo');
   // Demo must continue to send no traffic after leaving live mode.
   const before=requests.length;els.mode.value='demo';run('changeMode();updateJoystick(0,1)');await run('sendControl()');assert.equal(requests.length,before);
+  // Ban do: toa do, huong, loc diem do va chong nhay moc khi bo khoi dong lai.
+  const near=(actual,expected)=>assert(Math.abs(actual-expected)<1e-6,actual+' != '+expected);
+  run('map.track=.2;mapReset();mapStep(1,1)');near(run('map.y'),1);near(run('map.x'),0);near(run('map.len'),1);
+  run('mapStep(.1*Math.PI/2,-.1*Math.PI/2)');near(run('map.th'),Math.PI/2);near(run('map.y'),1);near(run('map.len'),1);
+  run('mapStep(1,1)');near(run('map.x'),1);near(run('map.y'),1);
+  assert.equal(run('mapScan(0,100)'),true);assert.equal(run('map.walls.size'),1);assert.deepEqual(run('[...map.walls.values()][0].map(v=>Math.round(v*1e6)/1e6)'),[2,1]);
+  run('mapScan(0,100.5)');assert.equal(run('map.walls.size'),1);
+  for(const bad of ['mapScan(0,1)','mapScan(0,151)','mapScan(NaN,50)','mapScan(0,Infinity)'])assert.equal(run(bad),false);assert.equal(run('map.walls.size'),1);
+  run('mapReset();mapLive([0,0,0,0].map(()=>({signed_distance_m:1})))');near(run('map.y'),0);assert.deepEqual(run('map.last'),[1,1]);
+  run('mapLive([0,0,0,0].map(()=>({signed_distance_m:1.5})))');near(run('map.y'),.5);
+  run('mapLive([0,0,0,0].map(()=>({signed_distance_m:9})))');near(run('map.y'),.5);assert.deepEqual(run('map.last'),[9,9]);
+  run('mapLive([{},{},{},{}])');assert.equal(els['map-status'].textContent,'Firmware chưa gửi vị trí');
+  run('map.y=5;mapReset()');near(run('map.y'),0);assert.equal(run('map.path.length'),1);run('map.track=.16');
+  // Dat vat can trong mo phong: bam lai thi go, qua sat xe thi tu choi, khong gui lenh toi xe.
+  const fetchBefore=requests.length;
+  run('stop();mapReset();map.track=.16');assert.equal(run('mapAddBox(1,1)'),true);assert.equal(run('map.boxes.length'),1);
+  run('mapAddBox(map.boxes[0][0],map.boxes[0][1])');assert.equal(run('map.boxes.length'),0);assert.equal(run('mapAddBox(map.x,map.y)'),false);
+  assert.equal(requests.length,fetchBefore,'mo phong khong gui lenh');
+  run('stop();mapReset()');
+  // Du lieu firmware: vi tri, duong di, diem quet; moi diem chi ve mot lan.
+  run('stop();mapReset();map.epoch=null;map.trailSeq=0;map.scanSeq=0');
+  const fw=(extra)=>({pose:{x:1,y:2,th:.5,length_m:3,epoch:7},trail:[],scan:{sweep_id:2,seen_echo:true,front_cm:42.4,points:[]},...extra});
+  run('globalThis.fwData=null');const setFw=d=>{ctx.fwData=d;run('mapLive([],fwData)')};
+  setFw(fw({trail:[[1,0,.1],[2,0,.2]],scan:{sweep_id:2,seen_echo:true,front_cm:42.4,points:[[1,1,1],[2,1.01,1.01]]}}));
+  near(run('map.x'),1);near(run('map.th'),.5);assert.equal(run('map.path.length'),3);assert.equal(run('map.walls.size'),1);assert.match(els['map-scan'].textContent,/42 cm/);
+  setFw(fw({trail:[[1,0,.1],[2,0,.2]]}));assert.equal(run('map.path.length'),3,'khong ve lai diem cu');
+  setFw(fw({trail:[[3,0,.3]]}));assert.equal(run('map.path.length'),4);
+  setFw(fw({trail:[[9,1,1]]}));assert.equal(run('map.path.at(-1)[2]'),1,'thieu diem thi ngat net');
+  setFw(fw({trail:[[10,1,1.1]]}));assert.equal(run('map.path.at(-1)[2]'),undefined,'diem lien tiep van noi net');
+  setFw({...fw(),pose:{...fw().pose,epoch:8}});assert.equal(run('map.walls.size'),0,'firmware dat lai ban do');
+  setFw(fw({scan:null,pose:{...fw().pose,epoch:8}}));assert.match(els['map-scan'].textContent,/Chưa bật/);
+  setFw(fw({scan:{sweep_id:0,seen_echo:false,front_cm:null,points:[]},pose:{...fw().pose,epoch:8}}));assert.match(els['map-scan'].textContent,/Chưa nhận tín hiệu/);
+  console.log('PASS: simulated obstacle placement and removal.');
+  console.log('PASS: map odometry, heading, obstacle projection and filtering, live baseline protection, reset.');
   console.log('PASS: real API telemetry rendering, persistent login/logout flow, joystick commands, lease release without idle control traffic, immediate STOP during pending movement, dead-zone release, session invalidation, automatic control acquisition, STOP/release cancellation and fresh-gesture restart, network-failure stop, demo isolation.');
 })().catch(error=>{console.error(error);process.exitCode=1});

@@ -137,9 +137,43 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         server.listener = FlakyListener()
         await asyncio.wait_for(raised.wait(), 1)
         await asyncio.sleep(.3)
-        self.robot.stop.assert_called_with('network_io_error')
+        # Thieu RAM khong phai loi listener: giu nguyen listener, khong dung xe.
+        self.assertNotIn(unittest.mock.call('network_io_error'), self.robot.stop.call_args_list)
+        self.assertIs(server.listener, original)
         self.assertFalse(server.task.done())
         await self.request_ping()
+
+    async def test_aborted_connection_while_accepting_keeps_listener_and_robot(self):
+        await self.web.start('127.0.0.1', 0)
+        server = self.web.server
+        original = server.listener
+        raised = asyncio.Event()
+
+        class AbortingListener:
+            def accept(self):
+                raised.set()
+                server.listener = original
+                raise OSError(errno.ECONNABORTED, 'ECONNABORTED')
+            def close(self):original.close()
+
+        server.listener = AbortingListener()
+        await asyncio.wait_for(raised.wait(), 1)
+        await asyncio.sleep(.1)
+        self.assertNotIn(unittest.mock.call('network_io_error'), self.robot.stop.call_args_list)
+        self.assertIs(server.listener, original)
+        await self.request_ping()
+
+    async def test_low_memory_in_route_returns_503_without_stopping(self):
+        await self.web.start('127.0.0.1', 0)
+        port = self.web.server.listener.getsockname()[1]
+        self.web.route = unittest.mock.Mock(side_effect=MemoryError('alloc'))
+        reader, writer = await asyncio.open_connection('127.0.0.1', port)
+        writer.write(b'GET /api/ping HTTP/1.1\r\nHost: x\r\n\r\n')
+        await writer.drain()
+        reply = await asyncio.wait_for(reader.read(), 2)
+        writer.close()
+        self.assertTrue(reply.startswith(b'HTTP/1.1 503'), reply[:40])
+        self.assertNotIn(unittest.mock.call('server_error'), self.robot.stop.call_args_list)
 
     async def test_shutdown_closes_incomplete_requests(self):
         await self.web.start('127.0.0.1', 0)
@@ -239,6 +273,27 @@ class MainCleanupTests(unittest.TestCase):
                         main.main()
                 robot.close.assert_called_once()
                 new_loop.assert_called_once()
+
+
+class JsonBufferTests(unittest.TestCase):
+    def setUp(self):
+        from web_server import JsonBuffer
+        self.buffer = JsonBuffer(64)
+
+    def test_output_is_valid_json(self):
+        data = {'a': 1, 'b': [1.5, None], 'c': {'d': 'x'}}
+        self.assertEqual(json.loads(bytes(self.buffer.encode(data))), data)
+
+    def test_busy_until_released_then_reusable(self):
+        self.assertIsNotNone(self.buffer.encode({'a': 1}))
+        self.assertIsNone(self.buffer.encode({'a': 2}))
+        self.buffer.release()
+        self.assertEqual(json.loads(bytes(self.buffer.encode({'a': 2}))), {'a': 2})
+
+    def test_too_large_returns_none_and_stays_free(self):
+        self.assertIsNone(self.buffer.encode({'a': 'x' * 100}))
+        self.assertFalse(self.buffer.busy)
+        self.assertIsNotNone(self.buffer.encode({'a': 1}))
 
 
 if __name__ == '__main__':

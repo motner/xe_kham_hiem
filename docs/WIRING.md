@@ -38,7 +38,7 @@ Các module trong ảnh có OUT, VCC, GND, không phải encoder A/B hai kênh.
 | 3 | GPIO39 |
 | 4 | GPIO36 |
 
-VCC nối 3V3, GND nối GND chung như ảnh. Dùng `encoder_b=None`.
+VCC nối 3V3, GND nối GND chung như ảnh. Encoder một kênh, không có kênh B (cấu hình chỉ có `encoder_a`).
 GPIO34–39 chỉ làm input, không có pull-up/pull-down nội: nếu OUT cần pull-up,
 phải dùng pull-up ngoài về 3.3 V hoặc điện trở đã có trên module.
 
